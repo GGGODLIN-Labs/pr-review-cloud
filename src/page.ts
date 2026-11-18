@@ -76,14 +76,12 @@ const styles = `
   #theme-system:focus-visible ~ .page label[for=theme-system],
   #theme-light:focus-visible ~ .page label[for=theme-light],
   #theme-dark:focus-visible ~ .page label[for=theme-dark] { outline: 2px solid var(--accent); }
-  .summary, article {
+  article {
     background: var(--paper);
     border: 1px solid var(--rule);
     padding: clamp(1rem, 4vw, 2.75rem);
     overflow-wrap: anywhere;
   }
-  .summary { padding-block: .85rem; border-inline-start: .25rem solid var(--accent); margin-block-end: .75rem; }
-  .summary p { margin-block: .2rem; }
   .source-status { color: var(--muted); font-size: .9rem; }
   article h1, article h2, article h3 { font-family: Georgia, "Noto Serif TC", serif; line-height: 1.25; }
   article h1 { font-size: clamp(1.85rem, 4vw, 3rem); margin-block-start: 0; }
@@ -104,7 +102,7 @@ function roundNavigation(round: 1 | 2): string {
 }
 
 export function reportPage(title: string, body: string, round?: 1 | 2): string {
-  const { html, header } = renderReport(body);
+  const html = renderReport(body);
   return `<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -135,12 +133,7 @@ export function reportPage(title: string, body: string, round?: 1 | 2): string {
       </header>
       <main>
         ${round ? roundNavigation(round) : ""}
-        <aside class="summary" aria-label="報告資訊">
-          ${header ? `<p><strong>${header.title}</strong></p>` : ""}
-          ${header?.pr ? `<p>${header.pr}</p>` : ""}
-          ${header?.continuity ? `<p>跨輪對帳 · ${escapeHtml(header.continuity)}</p>` : ""}
-          <p class="source-status">狀態以原報告內容為準</p>
-        </aside>
+        <p class="source-status">狀態以原報告內容為準</p>
         <article>${html}</article>
       </main>
     </div>

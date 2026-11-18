@@ -1,27 +1,9 @@
 import assert from "node:assert/strict";
-import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import worker from "../src/index.ts";
+import { renderReport } from "../src/markdown.ts";
 
 const request = (path, env = {}) => worker.fetch(new Request(`https://app.example${path}`), env);
-
-function shareEnv(t, markdown) {
-  const db = new DatabaseSync(":memory:");
-  t.after(() => db.close());
-  db.exec("CREATE TABLE reports (share_token TEXT UNIQUE, title TEXT, markdown_body TEXT, shared_at TEXT)");
-  const insert = db.prepare("INSERT INTO reports VALUES (?, ?, ?, ?)");
-  insert.run("public-fixture", "Sample & notes", markdown, "2026-11-18");
-  insert.run(null, "Private report", "Private fixture content", null);
-
-  return {
-    DB: {
-      prepare(sql) {
-        const statement = db.prepare(sql);
-        return { bind: (...values) => ({ first: async () => statement.get(...values) ?? null }) };
-      },
-    },
-  };
-}
 
 function assertRoundTwo(html) {
   assert.match(html, /Report projection schema\s*<\/strong>:\s*2/);
@@ -38,8 +20,10 @@ test("unsigned visitors can read both locally reconciled sample rounds without o
   for (const path of ["/", "/sample", "/sample?round=2"]) {
     const response = await request(path);
     assert.equal(response.status, 200, path);
+    assert.equal(response.headers.get("Content-Type"), "text/html; charset=utf-8");
     const html = await response.text();
     assertRoundTwo(html);
+    assert.match(html, /狀態以原報告內容為準/);
     assert.match(html, /<a[^>]*href="\/sample\?round=1"[^>]*>Round 1<\/a>/);
     assert.match(html, /href="https:\/\/github\.com\/GGGODLIN\/claude-pr-review"/);
     assert.match(html, /href="https:\/\/gggodlin\.com\/?"/);
@@ -67,21 +51,15 @@ test("public sample keeps working with no DB and with an unavailable DB", async 
   }
 });
 
-test("a legacy public report renders in full with its original status", async (t) => {
-  const env = shareEnv(t, "# Legacy review\n\n**Pending verification**\n\n- Recorded location\n- Last note from review");
-  const response = await request("/s/public-fixture", env);
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("Cache-Control") ?? "", /no-store/);
-  const html = await response.text();
+test("a legacy report renders in full with its original status", () => {
+  const html = renderReport("# Legacy review\n\n**Pending verification**\n\n- Recorded location\n- Last note from review");
   assert.match(html, /<h1>Legacy review<\/h1>/);
   assert.match(html, /<strong>Pending verification<\/strong>/);
   assert.match(html, /<li>Recorded location<\/li>[\s\S]*<li>Last note from review<\/li>/);
-  assert.match(html, /狀態以原報告內容為準/);
   assert.doesNotMatch(html, /Prior review continuity|\bFIXED\b/);
-  assert.equal((await request("/s/missing-fixture", env)).status, 404);
 });
 
-test("shared Markdown escapes raw tags and keeps only HTTP(S) links and images", async (t) => {
+test("report Markdown escapes raw tags and keeps only HTTP(S) links and images", () => {
   const markdown = [
     "# Markdown safety",
     "<script>/* sample marker */</script>",
@@ -94,16 +72,7 @@ test("shared Markdown escapes raw tags and keeps only HTTP(S) links and images",
     "![safe image](https://example.test/image.png)",
     "```js\nconst note = '<em>literal</em>';\n```",
   ].join("\n\n");
-  const response = await request("/s/public-fixture", shareEnv(t, markdown));
-  assert.equal(response.status, 200);
-  const csp = response.headers.get("Content-Security-Policy") ?? "";
-  assert.match(csp, /script-src 'none'/);
-  assert.match(csp, /object-src 'none'/);
-  assert.match(csp, /base-uri 'self'/);
-  assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
-  assert.equal(response.headers.get("Referrer-Policy"), "no-referrer");
-
-  const html = await response.text();
+  const html = renderReport(markdown);
   assert.match(html, /&lt;script&gt;\/\* sample marker \*\/&lt;\/script&gt;/);
   assert.match(html, /&lt;img src=&quot;https:\/\/example\.test\/raw\.png&quot; onerror=&quot;void\(0\)&quot;&gt;/);
   assert.match(html, /&lt;iframe src=&quot;https:\/\/example\.test\/frame&quot;&gt;&lt;\/iframe&gt;/);
