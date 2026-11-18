@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": ["ES2024"],
+    "module": "NodeNext",
+    "types": ["@cloudflare/workers-types"],
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "strict": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}
