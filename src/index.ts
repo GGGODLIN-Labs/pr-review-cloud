@@ -1,4 +1,5 @@
 import { apiKeyOwner, completeLogin, logout, signedInUser, startLogin, type Env } from "./auth.ts";
+import { polarWebhook, startCheckout } from "./billing.ts";
 import { htmlResponse, reportPage } from "./page.ts";
 import { sampleReports } from "./sample.ts";
 import { uploadReport } from "./upload.ts";
@@ -15,7 +16,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   const share = path.match(sharedRoute);
   const fromCLI = path === "/api/reports";
   const action = report?.[2];
-  const method = fromCLI || revoke || path === "/auth/logout" || path === "/workspace/keys" ||
+  const method = fromCLI || revoke || path === "/webhooks/polar" || path === "/auth/logout" || path === "/workspace/keys" ||
     path === "/workspace/reports" || (action && action !== "raw") ? "POST" : "GET";
   if (request.method !== method) {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: method } });
@@ -29,8 +30,9 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   const origin = url.origin;
   if (path === "/auth/github") return startLogin(env, origin);
   if (path === "/auth/github/callback") return completeLogin(request, env, origin);
+  if (path === "/webhooks/polar") return polarWebhook(request, env);
   if (!fromCLI && !share && !revoke && !report && ![
-    "/workspace", "/workspace/keys", "/workspace/reports", "/auth/logout",
+    "/workspace", "/workspace/checkout", "/workspace/keys", "/workspace/reports", "/auth/logout",
   ].includes(path)) return new Response("Not Found", { status: 404 });
   if (!db) return new Response("服務暫時無法使用。", { status: 503 });
 
@@ -51,7 +53,8 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   if (path === "/auth/logout") return logout(request, db);
   const user = await signedInUser(request, db);
   if (!user) return htmlResponse("需要登入", '<p><a href="/auth/github">Sign in with GitHub</a></p>', 401);
-  if (path === "/workspace") return workspacePage(db, user);
+  if (path === "/workspace") return workspacePage(db, user, env.BILLING_MODE === "polar_live");
+  if (path === "/workspace/checkout") return startCheckout(env, user.id, url.searchParams.get("plan"));
   if (path === "/workspace/keys") return issueKey(db, user.id, origin);
   if (revoke) return revokeKey(db, user.id, revoke[1]);
   if (path === "/workspace/reports") return uploadReport(request, db, user.id, false);

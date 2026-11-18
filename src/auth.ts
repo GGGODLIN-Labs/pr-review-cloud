@@ -7,6 +7,10 @@ export interface Env {
   DB?: D1Database;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
+  BILLING_MODE?: string;
+  POLAR_PRO_CHECKOUT_URL?: string;
+  POLAR_PRO_PASS_CHECKOUT_URL?: string;
+  POLAR_WEBHOOK_SECRET?: string;
 }
 
 export function randomToken(): string {
@@ -108,11 +112,11 @@ export async function completeLogin(request: Request, env: Env, origin: string):
   return redirect("/workspace", 302, [clearState, cookie(sessionCookie, token, 30 * 24 * 60 * 60)]);
 }
 
-export async function signedInUser(request: Request, db: D1Database): Promise<{ id: string; github_login: string } | null> {
+export async function signedInUser(request: Request, db: D1Database): Promise<{ id: string; github_login: string; plan: string } | null> {
   const token = readCookie(request, sessionCookie);
   if (!token) return null;
   return db.prepare(`
-    SELECT users.id, users.github_login FROM sessions JOIN users ON sessions.user_id = users.id
+    SELECT users.id, users.github_login, users.plan FROM sessions JOIN users ON sessions.user_id = users.id
     WHERE sessions.token_hash = ? AND sessions.expires_at > CURRENT_TIMESTAMP
   `).bind(await tokenHash(token)).first();
 }

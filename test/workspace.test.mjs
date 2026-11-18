@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
@@ -16,17 +16,34 @@ function fixture(t) {
   const db = new DatabaseSync(":memory:");
   t.after(() => db.close());
   db.exec(schema);
+  const execute = new WeakMap();
   const env = {
     DB: {
       prepare(sql) {
         const stmt = db.prepare(sql);
-        const bound = (args) => ({
-          bind: (...values) => bound(values),
-          async first() { return stmt.get(...args) ?? null; },
-          async all() { return { success: true, results: stmt.all(...args) }; },
-          async run() { return { success: true, meta: { changes: stmt.run(...args).changes } }; },
-        });
+        const bound = (args) => {
+          const run = () => ({ success: true, meta: { changes: stmt.run(...args).changes } });
+          const statement = {
+            bind: (...values) => bound(values),
+            async first() { return stmt.get(...args) ?? null; },
+            async all() { return { success: true, results: stmt.all(...args) }; },
+            async run() { return run(); },
+          };
+          execute.set(statement, run);
+          return statement;
+        };
         return bound([]);
+      },
+      async batch(statements) {
+        db.exec("BEGIN");
+        try {
+          const results = statements.map((statement) => execute.get(statement)());
+          db.exec("COMMIT");
+          return results;
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
+        }
       },
     },
     GITHUB_CLIENT_ID: "synthetic-client-id",
@@ -46,7 +63,7 @@ function fixture(t) {
     return { cookie: `__Host-prc_session=${session}`, key };
   }
 
-  return { fetch, account };
+  return { fetch, account, db, env };
 }
 
 function cookieFrom(response, name) {
@@ -378,5 +395,202 @@ test("private reports and raw files enforce ownership and shared links stop work
     assert.equal((await fetch(`${path}/delete`, browser(owner.cookie))).status, 303);
     assert.equal((await fetch(replacement)).status, 404);
     assert.equal((await view(fetch, `${path}/raw`, owner.cookie)).status, 404);
+  }
+});
+
+const polarSecret = "whsec_" + Buffer.from("synthetic-polar-endpoint-secret").toString("base64");
+const proCheckout = "https://buy.polar.sh/polar_cl_synthetic_monthly?theme=light";
+const passCheckout = "https://buy.polar.sh/polar_cl_synthetic_pass";
+
+function polarRequest(id, body, { key = Buffer.from(polarSecret.slice(6), "base64"), omit, timestamp = Math.floor(Date.now() / 1000) } = {}) {
+  const signature = `v1,${createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest("base64")}`;
+  const headers = new Headers({
+    "Content-Type": "application/json", "webhook-id": id, "webhook-timestamp": String(timestamp), "webhook-signature": signature,
+  });
+  if (omit) headers.delete(omit);
+  return { method: "POST", body, headers };
+}
+
+function polarFixture(t) {
+  const { fetch, account, db, env } = fixture(t);
+  Object.assign(env, {
+    BILLING_MODE: "polar_live", POLAR_WEBHOOK_SECRET: polarSecret,
+    POLAR_PRO_CHECKOUT_URL: proCheckout, POLAR_PRO_PASS_CHECKOUT_URL: passCheckout,
+  });
+  const events = () => db.prepare("SELECT event_id, event_type, user_id, plan_after FROM billing_events ORDER BY event_id").all()
+    .map((row) => ({ ...row }));
+  const deliver = (id, type, data, options) => fetch("/webhooks/polar", polarRequest(id, JSON.stringify({ type, data }), options));
+  return { fetch, account, db, env, deliver, events };
+}
+
+async function workspace(fetch, cookie) {
+  const response = await view(fetch, "/workspace", cookie);
+  assert.equal(response.status, 200);
+  return response.text();
+}
+
+async function expectQuota(fetch, cookie, plan, limit) {
+  assert.match(await workspace(fetch, cookie), new RegExp(`方案[^\\n]*\\b${plan}\\b[^\\n]*${limit} 份`));
+}
+
+test("billing mode gates both checkout choices and the signed-in redirects", async (t) => {
+  const { fetch, account, env, deliver } = polarFixture(t);
+  const { cookie } = account("billing-owner");
+  const options = /href="(\/workspace\/checkout\?plan=(?:pro|pro_pass))"/g;
+  const checkoutPath = "/workspace/checkout?plan=pro";
+  assert.equal((await view(fetch, checkoutPath)).status, 401);
+  const live = await workspace(fetch, cookie);
+  const paths = Array.from(live.matchAll(options), (match) => match[1]);
+  assert.deepEqual(paths, [checkoutPath, "/workspace/checkout?plan=pro_pass"]);
+  assert.match(live, /US\$19[^<]*月[^<]*500 份/);
+  assert.match(live, /US\$49[^<]*一次[^<]*500 份/);
+  assert.match(live, /服務存續期間免月費[^<]*12 個月[^<]*30 天[^<]*按比例退費/);
+  await expectQuota(fetch, cookie, "free", 20);
+  for (const [path, configured] of [[paths[0], proCheckout], [paths[1], passCheckout]]) {
+    const response = await view(fetch, `${path}&user_id=ignored`, cookie);
+    assert.equal(response.status, 303);
+    const location = new URL(response.headers.get("Location"));
+    const target = new URL(configured);
+    assert.equal(location.origin + location.pathname, target.origin + target.pathname);
+    for (const [key, value] of target.searchParams) assert.equal(location.searchParams.get(key), value);
+    assert.equal(location.searchParams.get("customer_external_id"), "billing-owner");
+    assert.equal(location.searchParams.get("metadata[user_id]"), "billing-owner");
+    assert.equal(location.searchParams.get("metadata[plan]"), path.split("=")[1]);
+    const reference = location.searchParams.get("reference_id");
+    assert.equal(Boolean(reference) && !reference.includes(polarSecret), true, "checkout reference must not expose the secret");
+    if (path === paths[1]) {
+      const received = await deliver("hosted-checkout", "order.paid", { subscription_id: null, metadata: { reference_id: reference } });
+      assert.equal(received.status, 200);
+      await expectQuota(fetch, cookie, "pro_pass", 500);
+    }
+  }
+  for (const mode of ["disabled", undefined, "unknown"]) {
+    env.BILLING_MODE = mode;
+    const disabled = await workspace(fetch, cookie);
+    assert.match(disabled, /付費升級即將開放/);
+    assert.equal(Array.from(disabled.matchAll(options)).length, 0);
+    assert.equal([proCheckout, passCheckout].some((url) => disabled.includes(url)), false);
+    for (const path of paths) {
+      const denied = await view(fetch, path, cookie);
+      assert.equal([403, 409, 503].includes(denied.status), true);
+      assert.equal(denied.headers.has("Location"), false);
+    }
+  }
+});
+
+test("signed activation, recurring orders and Pro Pass update quota once per delivery ID", async (t) => {
+  const { fetch, account, deliver, events } = polarFixture(t);
+  const subscriber = account("subscriber");
+  const pass = account("pass-holder");
+  const customer = { external_id: "subscriber" };
+  const old = () => deliver("02-revoke", "subscription.revoked", { external_customer_id: "subscriber" });
+  const first = await Promise.all([
+    deliver("01-active", "subscription.active", { customer }),
+    deliver("01-active", "subscription.active", { customer }),
+  ]);
+  assert.deepEqual(first.map(({ status }) => status), [200, 200]);
+  await expectQuota(fetch, subscriber.cookie, "pro", 500);
+  assert.equal((await old()).status, 200);
+  await expectQuota(fetch, subscriber.cookie, "free", 20);
+  assert.equal((await deliver("03-recurring", "order.paid", { customer, subscription_id: "sub-fixture" })).status, 200);
+  assert.equal((await old()).status, 200);
+  await expectQuota(fetch, subscriber.cookie, "pro", 500);
+  assert.equal((await deliver("04-pass", "order.paid", {
+    metadata: { plan: "pro_pass", user_id: "pass-holder" },
+  }, { key: Buffer.from(polarSecret) })).status, 200, "older Polar webhook endpoints use the literal UTF-8 secret");
+  await expectQuota(fetch, pass.cookie, "pro_pass", 500);
+  assert.deepEqual(events(), [
+    { event_id: "01-active", event_type: "subscription.active", user_id: "subscriber", plan_after: "pro" },
+    { event_id: "02-revoke", event_type: "subscription.revoked", user_id: "subscriber", plan_after: "free" },
+    { event_id: "03-recurring", event_type: "order.paid", user_id: "subscriber", plan_after: "pro" },
+    { event_id: "04-pass", event_type: "order.paid", user_id: "pass-holder", plan_after: "pro_pass" },
+  ]);
+});
+
+test("invalid webhook input does not write, and a failed SQLite transaction can be retried", async (t) => {
+  const { fetch, account, db, env, deliver, events } = polarFixture(t);
+  const { cookie } = account("retry-owner");
+  const customer = { external_id: "retry-owner" };
+  assert.equal((await deliver("01-setup", "subscription.revoked", { customer })).status, 200);
+  const before = events();
+  assert.equal(before.length, 1);
+  const body = JSON.stringify({ type: "subscription.active", data: { customer } });
+  const inputs = [
+    [body, { key: Buffer.from("bad-synthetic-key") }],
+    ...["webhook-id", "webhook-timestamp", "webhook-signature"].map((omit) => [body, { omit }]),
+    [body, { timestamp: Math.floor(Date.now() / 1000) - 600 }],
+    ["{", {}],
+    [JSON.stringify({ type: "subscription.active", data: {} }), {}],
+    [JSON.stringify({ type: "subscription.active", data: { metadata: { reference_id: "retry-owner.invalid" } } }), {}],
+  ];
+  for (const [payload, options] of inputs) {
+    const request = polarRequest("02-retry", payload, options);
+    const response = await fetch("/webhooks/polar", request);
+    assert.equal([400, 401].includes(response.status), true, `invalid input returned ${response.status}`);
+    const output = `${await response.text()}\n${JSON.stringify([...response.headers])}`;
+    assert.equal(output.includes(polarSecret), false, "webhook error exposed the signing secret");
+    const signature = request.headers.get("webhook-signature");
+    if (signature) assert.equal(output.includes(signature), false, "webhook error exposed the signature");
+  }
+  delete env.POLAR_WEBHOOK_SECRET;
+  assert.equal((await deliver("02-retry", "subscription.active", { customer })).status, 503);
+  env.POLAR_WEBHOOK_SECRET = polarSecret;
+  assert.deepEqual(events(), before);
+  await expectQuota(fetch, cookie, "free", 20);
+
+  for (const statement of ["UPDATE OF plan ON users", "INSERT ON billing_events"]) {
+    db.exec(`CREATE TRIGGER reject_write BEFORE ${statement} BEGIN SELECT RAISE(ABORT, 'fixture write failure'); END;`);
+    const failure = await deliver("02-retry", "subscription.active", { customer });
+    assert.equal([500, 503].includes(failure.status), true);
+    assert.deepEqual(events(), before);
+    await expectQuota(fetch, cookie, "free", 20);
+    db.exec("DROP TRIGGER reject_write");
+  }
+  assert.equal((await deliver("02-retry", "subscription.active", { customer })).status, 200);
+  assert.equal(events().length, 2);
+  await expectQuota(fetch, cookie, "pro", 500);
+});
+
+test("expiration or full refund preserves 25 reports and reopens uploading only below the free limit", async (t) => {
+  const { fetch, account, deliver } = polarFixture(t);
+  for (const [plan, type, interim, terminal] of [
+    ["pro", "subscription.canceled", { ended_at: null, status: "active" }, { ended_at: "2026-01-01T00:00:00Z", status: "canceled" }],
+    ["pro_pass", "order.refunded", { refunded_amount: 1000, net_amount: 4900 }, { refunded_amount: 4900, net_amount: 4900 }],
+  ]) {
+    const { key, cookie } = account(plan, { plan });
+    const customer = { external_id: plan };
+    const originals = [];
+    for (let i = 1; i <= 25; i++) {
+      const title = `Paid history ${i}`;
+      const content = `# ${title}\n\nOriginal content ${i}.`;
+      originals.push({ title, content, path: await uploadedPath(await cli(fetch, key, content)) });
+    }
+    assert.equal((await deliver(`${plan}-interim`, type, { customer, ...interim })).status, 200);
+    await expectQuota(fetch, cookie, plan, 500);
+    assert.equal((await deliver(`${plan}-terminal`, type, { customer, ...terminal })).status, 200);
+    await expectQuota(fetch, cookie, "free", 20);
+    const list = await workspace(fetch, cookie);
+    assert.equal((list.match(/>Paid history \d+<\/a>/g) ?? []).length, 25);
+    for (const { title, content, path } of originals) {
+      assert.ok(list.includes(`href="${path}">${title}</a>`));
+      const detail = await view(fetch, path, cookie);
+      assert.equal(detail.status, 200);
+      assert.ok((await detail.text()).includes(content.split("\n\n")[1]));
+      const raw = await view(fetch, `${path}/raw`, cookie);
+      assert.equal(raw.status, 200);
+      assert.match(raw.headers.get("Content-Disposition"), /^attachment;/);
+      assert.equal(await raw.text(), content);
+    }
+    const picker = (title) => fetch("/workspace/reports", browser(cookie, formFile("report.md", `# ${title}`)));
+    assert.equal((await cli(fetch, key, "# Reject report 26 via CLI")).status, 409);
+    assert.equal((await picker("Reject report 26 via picker")).status, 409);
+    assert.equal(await workspace(fetch, cookie), list);
+    for (const { path } of originals.slice(0, 6)) {
+      assert.equal((await fetch(`${path}/delete`, browser(cookie))).status, 303);
+      assert.equal((await view(fetch, `${path}/raw`, cookie)).status, 404);
+    }
+    assert.equal((await picker("Allowed report 20")).status, 303);
+    assert.equal((await cli(fetch, key, "# Reject report 21")).status, 409);
+    assert.match(await workspace(fetch, cookie), />Allowed report 20<\/a>/);
   }
 });

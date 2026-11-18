@@ -16,7 +16,10 @@ interface ReportSummary {
   share_token: string | null;
 }
 
-export async function workspacePage(db: D1Database, user: { id: string; github_login: string }): Promise<Response> {
+export async function workspacePage(
+  db: D1Database, user: { id: string; github_login: string; plan: string }, billingLive: boolean,
+): Promise<Response> {
+  const plan = user.plan === "pro" || user.plan === "pro_pass" ? user.plan : "free";
   const [reports, keys] = await Promise.all([
     db.prepare(`
       SELECT id, title, size_bytes, created_at, continuity_summary, share_token
@@ -38,6 +41,17 @@ export async function workspacePage(db: D1Database, user: { id: string; github_l
     <h1>工作區</h1>
     <p>GitHub：${escapeHtml(user.github_login)}</p>
     <form method="post" action="/auth/logout"><button>登出</button></form>
+    <section>
+      <h2>方案與配額</h2>
+      <p>目前方案：${plan} · 上限 ${plan === "free" ? 20 : 500} 份報告。</p>
+      ${billingLive ? `
+        <ul>
+          <li><a href="/workspace/checkout?plan=pro">Pro 專業訂閱</a>：US$19／月，最高 500 份報告。</li>
+          <li><a href="/workspace/checkout?plan=pro_pass">Pro Pass 個人買斷</a>：US$49 一次付清，最高 500 份報告。</li>
+        </ul>
+        <p>Pro Pass 在服務存續期間免月費，保證自購買日起至少 12 個月正常運作；停機前至少 30 天通知下載備份，未滿 12 個月按比例退費。</p>
+      ` : "<p>付費升級即將開放。</p>"}
+    </section>
     <section>
       <h2>上傳報告</h2>
       <form method="post" action="/workspace/reports" enctype="multipart/form-data">
