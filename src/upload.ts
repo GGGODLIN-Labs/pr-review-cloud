@@ -2,7 +2,6 @@ import { lexer, type Tokens } from "marked";
 import { readBoundedBody } from "./body.ts";
 
 const maxBytes = 131_072;
-const tooLarge = "報告不得超過 128 KB（131,072 bytes）。";
 const auditFile = "不接受 .audit.md 稽核副檔，請改傳不含完整原始證據的主報告 .md。";
 
 export async function uploadReport(request: Request, db: D1Database, userId: string, fromCLI: boolean): Promise<Response> {
@@ -16,14 +15,14 @@ export async function uploadReport(request: Request, db: D1Database, userId: str
   let bytes: Uint8Array | null;
   try {
     bytes = await readBoundedBody(request, maxBytes + (multipart ? 16_384 : 0));
-    if (!bytes) return new Response(tooLarge, { status: 413 });
+    if (!bytes) return new Response(null, { status: 413 });
     if (multipart) {
       const form = await new Response(bytes, { headers: { "Content-Type": type } }).formData();
       const file = form.get("file");
       if (!file || typeof file === "string" || !file.name) return new Response("請選擇報告檔案。", { status: 400 });
       filename = file.name;
       if (/\.audit\.md$/i.test(filename)) return new Response(auditFile, { status: 400 });
-      if (file.size > maxBytes) return new Response(tooLarge, { status: 413 });
+      if (file.size > maxBytes) return new Response(null, { status: 413 });
       bytes = new Uint8Array(await file.arrayBuffer());
     }
   } catch {

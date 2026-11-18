@@ -26,7 +26,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     return reportPage(`公開審查範例 · Round ${round}`, sampleReports[round], { round, signedIn: Boolean(user) });
   }
 
-  const origin = env.APP_ORIGIN ? new URL(env.APP_ORIGIN).origin : url.origin;
+  const origin = url.origin;
   if (path === "/auth/github") return startLogin(env, origin);
   if (path === "/auth/github/callback") return completeLogin(request, env, origin);
   if (!fromCLI && !share && !revoke && !report && ![

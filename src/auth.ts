@@ -5,7 +5,6 @@ const stateCookie = "__Host-prc_oauth_state";
 
 export interface Env {
   DB?: D1Database;
-  APP_ORIGIN?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
 }
