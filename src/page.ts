@@ -92,6 +92,12 @@ const styles = `
   article pre { overflow: auto; padding: .75rem; background: var(--well); }
   article .raw-html { white-space: pre-wrap; }
   article img { max-inline-size: 100%; block-size: auto; }
+  section { margin-block: 1.5rem; }
+  form { margin-block: .6rem; }
+  .workspace-list { padding-inline-start: 1.4rem; }
+  .workspace-list li + li { margin-block-start: .7rem; }
+  .workspace-meta { display: block; color: var(--muted); }
+  .copy-command { box-sizing: border-box; inline-size: 100%; font: inherit; font-family: monospace; }
 `;
 
 function roundNavigation(round: 1 | 2): string {
@@ -101,9 +107,8 @@ function roundNavigation(round: 1 | 2): string {
 </nav>`;
 }
 
-export function reportPage(title: string, body: string, round?: 1 | 2): string {
-  const html = renderReport(body);
-  return `<!doctype html>
+export function htmlResponse(title: string, content: string, status = 200, signedIn = false): Response {
+  const html = `<!doctype html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
@@ -122,6 +127,7 @@ export function reportPage(title: string, body: string, round?: 1 | 2): string {
         <a class="wordmark" href="/">PR Review Cloud</a>
         <nav aria-label="網站導覽">
           <a href="/sample">公開範例</a>
+          ${signedIn ? '<a href="/workspace">工作區</a>' : '<a href="/auth/github">Sign in with GitHub</a>'}
           <a href="https://gggodlin.com" rel="noopener noreferrer">GGGODLIN</a>
           <a href="https://github.com/GGGODLIN/claude-pr-review" rel="noopener noreferrer">GitHub</a>
         </nav>
@@ -132,12 +138,28 @@ export function reportPage(title: string, body: string, round?: 1 | 2): string {
         </div>
       </header>
       <main>
-        ${round ? roundNavigation(round) : ""}
-        <p class="source-status">狀態以原報告內容為準</p>
-        <article>${html}</article>
+        ${content}
       </main>
     </div>
   </div>
 </body>
 </html>`;
+  return new Response(html, {
+    status,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Referrer-Policy": signedIn ? "same-origin" : "no-referrer",
+      "Content-Security-Policy": "default-src 'none'; img-src https: http:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    },
+  });
+}
+
+export function reportPage(title: string, body: string, options: { round?: 1 | 2; actions?: string; signedIn?: boolean } = {}): Response {
+  const { round, actions, signedIn } = options;
+  return htmlResponse(title, `
+    ${round ? roundNavigation(round) : ""}
+    ${actions ?? ""}
+    <p class="source-status">狀態以原報告內容為準</p>
+    <article>${renderReport(body)}</article>
+  `, 200, signedIn);
 }
