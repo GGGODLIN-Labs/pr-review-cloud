@@ -15,6 +15,7 @@ const digest = (value) => createHash("sha256").update(value).digest("hex");
 function fixture(t) {
   const db = new DatabaseSync(":memory:");
   t.after(() => db.close());
+  db.exec("PRAGMA foreign_keys = ON;");
   db.exec(schema);
   const execute = new WeakMap();
   const env = {
@@ -593,4 +594,42 @@ test("expiration or full refund preserves 25 reports and reopens uploading only 
     assert.equal((await cli(fetch, key, "# Reject report 21")).status, 409);
     assert.match(await workspace(fetch, cookie), />Allowed report 20<\/a>/);
   }
+});
+
+test("webhook preserves Pro Pass across subscription churn, ignores stale events, tolerates unknown users and reports full storage", async (t) => {
+  const { fetch, account, db, deliver, events } = polarFixture(t);
+  const { cookie, key } = account("pass-and-sub", { plan: "pro_pass" });
+  const customer = { external_id: "pass-and-sub" };
+  assert.equal((await deliver("sub-on", "subscription.active", { customer })).status, 200);
+  await expectQuota(fetch, cookie, "pro_pass", 500);
+  assert.equal((await deliver("sub-off", "subscription.revoked", { customer })).status, 200);
+  await expectQuota(fetch, cookie, "pro_pass", 500);
+
+  const now = Date.now();
+  const refundBody = JSON.stringify({
+    type: "order.refunded",
+    timestamp: new Date(now + 5_000).toISOString(),
+    data: { customer, status: "refunded", subscription_id: null },
+  });
+  assert.equal((await fetch("/webhooks/polar", polarRequest("pass-refund", refundBody))).status, 200);
+  await expectQuota(fetch, cookie, "free", 20);
+
+  const stalePaid = JSON.stringify({
+    type: "order.paid",
+    timestamp: new Date(now - 60_000).toISOString(),
+    data: { customer, subscription_id: null, metadata: { plan: "pro_pass" } },
+  });
+  assert.equal((await fetch("/webhooks/polar", polarRequest("stale-paid", stalePaid))).status, 200);
+  await expectQuota(fetch, cookie, "free", 20);
+
+  assert.equal((await deliver("ghost-user", "subscription.active", {
+    customer: { external_id: "deleted-or-unknown-user" },
+  })).status, 200);
+  assert.equal(events().find((row) => row.event_id === "ghost-user")?.user_id, null);
+
+  db.exec("CREATE TRIGGER simulate_full BEFORE INSERT ON reports BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END;");
+  const fullResponse = await cli(fetch, key, "# Storage capacity probe");
+  assert.equal(fullResponse.status, 507);
+  assert.match(await fullResponse.text(), /容量上限/);
+  db.exec("DROP TRIGGER simulate_full");
 });

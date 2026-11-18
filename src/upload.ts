@@ -50,12 +50,20 @@ export async function uploadReport(request: Request, db: D1Database, userId: str
 
   const id = crypto.randomUUID();
   // A separate count and insert could admit two uploads competing for the remaining slot.
-  const result = await db.prepare(`
-    INSERT INTO reports (id, user_id, title, pr_ref, schema_version, continuity_summary, markdown_body, size_bytes)
-    SELECT ?, users.id, ?, ?, ?, ?, ?, ? FROM users
-    WHERE users.id = ? AND (SELECT COUNT(*) FROM reports WHERE user_id = users.id)
-      < CASE users.plan WHEN 'pro' THEN 500 WHEN 'pro_pass' THEN 500 ELSE 20 END
-  `).bind(id, title, projection ? prs[0] : null, projection ? 2 : null, continuity, markdown, bytes.byteLength, userId).run();
+  let result: D1Result;
+  try {
+    result = await db.prepare(`
+      INSERT INTO reports (id, user_id, title, pr_ref, schema_version, continuity_summary, markdown_body, size_bytes)
+      SELECT ?, users.id, ?, ?, ?, ?, ?, ? FROM users
+      WHERE users.id = ? AND (SELECT COUNT(*) FROM reports WHERE user_id = users.id)
+        < CASE users.plan WHEN 'pro' THEN 500 WHEN 'pro_pass' THEN 500 ELSE 20 END
+    `).bind(id, title, projection ? prs[0] : null, projection ? 2 : null, continuity, markdown, bytes.byteLength, userId).run();
+  } catch (error) {
+    if (error instanceof Error && /full|quota|space|storage|capacity/i.test(error.message)) {
+      return new Response("雲端資料庫儲存空間已達平台容量上限，請稍後再試或刪除舊報告。", { status: 507 });
+    }
+    throw error;
+  }
   if (!result.meta.changes) return new Response("報告已達配額，請刪除舊報告或升級方案。", { status: 409 });
   const location = `/workspace/reports/${id}`;
   return fromCLI

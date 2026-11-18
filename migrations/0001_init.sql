@@ -48,7 +48,8 @@ CREATE TABLE billing_events (
   event_type TEXT NOT NULL,
   user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   plan_after TEXT,
+  event_ts INTEGER NOT NULL DEFAULT 0,
   payload_json TEXT NOT NULL,
   processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX billing_events_user_id ON billing_events(user_id);
+CREATE INDEX billing_events_user_id ON billing_events(user_id, event_ts);

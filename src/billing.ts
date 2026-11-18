@@ -115,17 +115,26 @@ export async function polarWebhook(request: Request, env: Env): Promise<Response
   if (plan === null) return new Response("OK");
   const userId = await eventUser(data, secret);
   if (!plan || !userId) return badRequest();
+  const parsedTs = Date.parse(text(event?.timestamp) ?? "");
+  const eventTs = Number.isFinite(parsedTs) ? parsedTs : Number(timestamp) * 1000;
+  const subscriptionScoped = type.startsWith("subscription.") ||
+    Boolean(text(data.subscription_id)) || fields(data.product)?.is_recurring === true ? 1 : 0;
 
-  // Recheck inside the write transaction so two deliveries that miss the fast path cannot both change the plan.
+  // Recheck event_id and event_ts inside the transaction so duplicate or out-of-order deliveries cannot regress entitlements,
+  // and preserve one-time pro_pass across monthly subscription transitions.
   const results = await db.batch([
     db.prepare(`
-      UPDATE users SET plan = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND NOT EXISTS (SELECT 1 FROM billing_events WHERE event_id = ?)
-    `).bind(plan, userId, id),
+      UPDATE users
+      SET plan = CASE WHEN ? = 1 AND users.plan = 'pro_pass' THEN 'pro_pass' ELSE ? END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+        AND NOT EXISTS (SELECT 1 FROM billing_events WHERE event_id = ?)
+        AND NOT EXISTS (SELECT 1 FROM billing_events WHERE user_id = users.id AND event_ts > ?)
+    `).bind(subscriptionScoped, plan, userId, id, eventTs),
     db.prepare(`
-      INSERT INTO billing_events (event_id, event_type, user_id, plan_after, payload_json)
-      VALUES (?, ?, ?, ?, ?) ON CONFLICT (event_id) DO NOTHING
-    `).bind(id, type, userId, plan, body),
+      INSERT INTO billing_events (event_id, event_type, user_id, plan_after, event_ts, payload_json)
+      VALUES (?, ?, (SELECT id FROM users WHERE id = ?), ?, ?, ?) ON CONFLICT (event_id) DO NOTHING
+    `).bind(id, type, userId, plan, eventTs, body),
   ]);
   if (results.some((result) => !result.success)) return new Response("Polar 通知暫時無法使用。", { status: 503 });
   return new Response("OK");
