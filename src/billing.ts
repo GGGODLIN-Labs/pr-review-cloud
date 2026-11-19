@@ -120,8 +120,8 @@ export async function polarWebhook(request: Request, env: Env): Promise<Response
   const subscriptionScoped = type.startsWith("subscription.") ||
     Boolean(text(data.subscription_id)) || fields(data.product)?.is_recurring === true ? 1 : 0;
 
-  // Recheck event_id and event_ts inside the transaction so duplicate or out-of-order deliveries cannot regress entitlements,
-  // and preserve one-time pro_pass across monthly subscription transitions.
+  // Recheck event_id and per-lane event_ts inside the transaction so duplicate or out-of-order deliveries cannot regress
+  // entitlements within the same lane, while subscription churn never blocks or overwrites a one-time pro_pass purchase.
   const results = await db.batch([
     db.prepare(`
       UPDATE users
@@ -129,8 +129,16 @@ export async function polarWebhook(request: Request, env: Env): Promise<Response
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
         AND NOT EXISTS (SELECT 1 FROM billing_events WHERE event_id = ?)
-        AND NOT EXISTS (SELECT 1 FROM billing_events WHERE user_id = users.id AND event_ts > ?)
-    `).bind(subscriptionScoped, plan, userId, id, eventTs),
+        AND NOT EXISTS (
+          SELECT 1 FROM billing_events
+          WHERE user_id = users.id
+            AND event_ts > ?
+            AND (
+              (? = 1 AND (event_type LIKE 'subscription.%' OR event_type = 'order.refunded' OR plan_after = 'pro'))
+              OR (? = 0 AND (plan_after = 'pro_pass' OR event_type = 'order.refunded'))
+            )
+        )
+    `).bind(subscriptionScoped, plan, userId, id, eventTs, subscriptionScoped, subscriptionScoped),
     db.prepare(`
       INSERT INTO billing_events (event_id, event_type, user_id, plan_after, event_ts, payload_json)
       VALUES (?, ?, (SELECT id FROM users WHERE id = ?), ?, ?, ?) ON CONFLICT (event_id) DO NOTHING

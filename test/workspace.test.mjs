@@ -632,4 +632,20 @@ test("webhook preserves Pro Pass across subscription churn, ignores stale events
   assert.equal(fullResponse.status, 507);
   assert.match(await fullResponse.text(), /容量上限/);
   db.exec("DROP TRIGGER simulate_full");
+
+  const crossLane = account("sub-then-older-pass", { plan: "pro" });
+  const subEnd = JSON.stringify({
+    type: "subscription.revoked",
+    timestamp: new Date(now + 10_000).toISOString(),
+    data: { customer: { external_id: "sub-then-older-pass" } },
+  });
+  assert.equal((await fetch("/webhooks/polar", polarRequest("lane-sub-end", subEnd))).status, 200);
+  await expectQuota(fetch, crossLane.cookie, "free", 20);
+  const passPaidEarlier = JSON.stringify({
+    type: "order.paid",
+    timestamp: new Date(now + 5_000).toISOString(),
+    data: { customer: { external_id: "sub-then-older-pass" }, subscription_id: null, metadata: { plan: "pro_pass" } },
+  });
+  assert.equal((await fetch("/webhooks/polar", polarRequest("lane-pass-paid", passPaidEarlier))).status, 200);
+  await expectQuota(fetch, crossLane.cookie, "pro_pass", 500);
 });
