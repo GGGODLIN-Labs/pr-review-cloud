@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import worker from "../src/index.ts";
-import { renderReport } from "../src/markdown.ts";
+import { extractContinuityCounts, renderReport } from "../src/markdown.ts";
+import { reportPage } from "../src/page.ts";
 
 const request = (path, env = {}) => worker.fetch(new Request(`https://app.example${path}`), env);
 
@@ -119,13 +120,25 @@ test("schema 2 reports render convergence meter, status badges, STILL_OPEN CSS f
   assert.match(html, /<details class="report-toc">/);
   assert.match(html, /<h2 id="sec-/);
   assert.match(html, /id="pr-comment-summary"/);
-  assert.match(html, /--open: #ef9a7c;/);
-  assert.match(html, /white-space: nowrap;/);
+  assert.equal((html.match(/--open: #ef9a7c;/g) ?? []).length, 2, "both dark-mode blocks must use accessible --open");
+  assert.doesNotMatch(html, /--open: #e08161;/);
+  assert.match(html, /\.report-toc summary::after\s*\{[^}]*white-space:\s*nowrap;/);
   assert.doesNotMatch(html, /<script\b/i);
 
-  const samePageLink = renderReport("[Jump](#sec-summary) and [Blocked](/relative)");
+  const samePageLink = renderReport("[Jump](#sec-summary), [中文](#sec-發布判斷), and [Blocked](/relative)");
   assert.match(samePageLink, /<a href="#sec-summary">Jump<\/a>/);
+  assert.match(samePageLink, /<a href="#sec-發布判斷">中文<\/a>/);
   assert.doesNotMatch(samePageLink, /href="\/relative"/);
+
+  const fencedExample = "# Regular review\n\n```md\n**Report projection schema**: 2\n**Prior review continuity**: CHECKED (fixed 2 / still-open 1 / stale 0)\n```\n";
+  assert.equal(extractContinuityCounts(fencedExample), null, "metadata inside fenced code blocks must be ignored");
+
+  const skippedHtml = await reportPage(
+    "Skipped Continuity",
+    "# Zero prior items\n\n**Report projection schema**: 2\n**Prior review continuity**: SKIPPED (fixed 0 / still-open 0 / stale 0)\n",
+  ).text();
+  assert.match(skippedHtml, /0 筆既往對帳項目/);
+  assert.doesNotMatch(skippedHtml, /已修復（100%）/);
 });
 
 test("home banner, legal footer, meta description, robots.txt, llms.txt and rich 401 sign-in card", async () => {

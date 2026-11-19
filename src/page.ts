@@ -135,8 +135,8 @@ const styles = `
       --well: #2c2924;
       --pass: #4cc38a;
       --pass-bg: rgba(76, 195, 138, 0.14);
-      --open: #e08161;
-      --open-bg: rgba(224, 129, 97, 0.16);
+      --open: #ef9a7c;
+      --open-bg: rgba(239, 154, 124, 0.14);
       --stale: #aaa398;
       --stale-bg: rgba(170, 163, 152, 0.14);
       --danger: #ef7c6b;
@@ -1043,7 +1043,9 @@ ${seoMeta}
 
 function renderConvergenceCard(continuity: ContinuityCounts | null): string {
   if (!continuity) return "";
-  const pct = continuity.total > 0 ? Math.round((continuity.fixed / continuity.total) * 100) : 100;
+  const rateText = continuity.total > 0
+    ? `${continuity.fixed} / ${continuity.total} 已修復（${Math.round((continuity.fixed / continuity.total) * 100)}%）`
+    : "0 筆既往對帳項目";
   const segments = [
     continuity.fixed > 0 ? `<span class="convergence-seg is-fixed" style="flex:${continuity.fixed}"></span>` : "",
     continuity.stillOpen > 0 ? `<span class="convergence-seg is-open" style="flex:${continuity.stillOpen}"></span>` : "",
@@ -1052,7 +1054,7 @@ function renderConvergenceCard(continuity: ContinuityCounts | null): string {
   return `<section class="convergence-card" aria-label="跨輪修復收斂摘要">
     <div class="convergence-head">
       <span class="convergence-label">跨輪對帳 · ${escapeHtml(continuity.status)}</span>
-      <span class="convergence-rate">${continuity.fixed} / ${continuity.total} 已修復（${pct}%）</span>
+      <span class="convergence-rate">${rateText}</span>
     </div>
     <div class="convergence-pills">
       <span class="status-pill is-fixed">FIXED · ${continuity.fixed}</span>

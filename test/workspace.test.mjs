@@ -751,4 +751,11 @@ test("shared reports support /s/:token/raw download with immediate revocation, P
   });
   assert.equal(auditWithoutFilename.status, 400);
   assert.match(await auditWithoutFilename.text(), /主報告.*\.md/);
+
+  const legitMentioningAudit = await fetch("/api/reports", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}` },
+    body: "# Fix audit sidecar upload rejection\n\n**Report projection schema**: 2\n**PR**: owner/repo#89\n\nMain report.",
+  });
+  assert.equal(legitMentioningAudit.status, 201, "legitimate main report mentioning 'audit sidecar' in title must be accepted");
 });

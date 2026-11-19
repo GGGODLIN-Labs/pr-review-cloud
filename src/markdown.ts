@@ -1,4 +1,4 @@
-import { Marked, Renderer, type Tokens } from "marked";
+import { lexer, Marked, Renderer, type Tokens } from "marked";
 
 const htmlEntities: Record<string, string> = {
   "&": "&amp;",
@@ -37,7 +37,7 @@ export interface RenderedReport {
 }
 
 const exactStatusRe = /^(FIXED|STILL_OPEN|STALE)$/;
-const safeFragmentRe = /^#[A-Za-z0-9_-]{1,80}$/;
+const safeFragmentRe = /^#[A-Za-z0-9一-鿿_-]{1,80}$/;
 
 function safeUrl(href: string): string | undefined {
   if (safeFragmentRe.test(href)) return href;
@@ -64,11 +64,15 @@ function slugifyHeading(text: string, seen: Map<string, number>): string {
 
 export function extractContinuityCounts(body: string): ContinuityCounts | null {
   const normalized = body.replace(/^﻿/, "");
-  const hasSchema = /^\*\*Report projection schema\*\*:\s*[23]\s*$/m.test(normalized);
+  const tokens = lexer(normalized);
+  const fields = tokens.flatMap((token) =>
+    token.type === "paragraph" && typeof token.text === "string" ? token.text.split(/\r?\n/) : []);
+  const hasSchema = fields.some((line) => /^\*\*Report projection schema\*\*:\s*[23]\s*$/.test(line));
   if (!hasSchema) return null;
-  const match = normalized.match(
-    /^\*\*Prior review continuity\*\*:\s*([A-Z_]+)\s*\(fixed\s+(\d+)\s*\/\s*still-open\s+(\d+)\s*\/\s*stale\s+(\d+)\)\s*$/m,
-  );
+  const match = fields
+    .map((line) =>
+      line.match(/^\*\*Prior review continuity\*\*:\s*([A-Z_]+)\s*\(fixed\s+(\d+)\s*\/\s*still-open\s+(\d+)\s*\/\s*stale\s+(\d+)\)\s*$/))
+    .find(Boolean);
   if (!match) return null;
   const [, status, fixedStr, openStr, staleStr] = match;
   const fixed = Number.parseInt(fixedStr, 10);

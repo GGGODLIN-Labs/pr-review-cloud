@@ -47,7 +47,7 @@ export async function workspacePage(
   const [reports, keys] = await Promise.all([
     db.prepare(`
       SELECT id, title, pr_ref, size_bytes, created_at, continuity_summary, share_token
-      FROM reports WHERE user_id = ? ORDER BY created_at DESC, id DESC
+      FROM reports WHERE user_id = ? ORDER BY created_at DESC, rowid DESC
     `).bind(user.id).all<ReportSummary>(),
     db.prepare("SELECT id, name, key_prefix, created_at FROM api_keys WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC")
       .bind(user.id).all<KeySummary>(),
@@ -210,7 +210,7 @@ export async function readReport(db: D1Database, userId: string, reportId: strin
     const siblings = await db.prepare(`
       SELECT id, created_at, continuity_summary
       FROM reports WHERE user_id = ? AND pr_ref = ?
-      ORDER BY created_at ASC, id ASC
+      ORDER BY created_at ASC, rowid ASC
     `).bind(userId, report.pr_ref).all<{ id: string; created_at: string; continuity_summary: string | null }>();
     timeline = renderPrTimeline(report.pr_ref, siblings.results, reportId);
   }

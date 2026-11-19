@@ -8,7 +8,8 @@ const tooLarge = "報告檔案超過 128 KB（131,072 bytes）上限，請精簡
 
 function looksLikeAuditSidecar(markdown: string): boolean {
   const head = markdown.replace(/^﻿/, "").split(/\r?\n/, 40).join("\n");
-  return /^(?:#\s+.*\baudit\s+sidecar\b|\*\*Audit\s+sidecar\*\*:|\*\*Report\s+artifact\s+role\*\*:\s*audit\b)/im.test(head);
+  if (/^\*\*Report projection schema\*\*:\s*[23]\s*$/m.test(head)) return false;
+  return /^(?:#\s+PR\s+Review\s+Audit\s+Sidecar\b|\*\*Audit\s+sidecar\*\*:|\*\*Report\s+artifact\s+role\*\*:\s*audit\b)/im.test(head);
 }
 
 function uploadError(fromCLI: boolean, title: string, message: string, status: number): Response {
