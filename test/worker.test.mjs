@@ -124,3 +124,37 @@ test("schema 2 reports render convergence meter, status badges, STILL_OPEN CSS f
   assert.match(samePageLink, /<a href="#sec-summary">Jump<\/a>/);
   assert.doesNotMatch(samePageLink, /href="\/relative"/);
 });
+
+test("home banner, legal footer, meta description, robots.txt, llms.txt and rich 401 sign-in card", async () => {
+  const home = await request("/");
+  const homeHtml = await home.text();
+  assert.match(homeHtml, /class="intro-banner"/);
+  assert.match(homeHtml, /<meta name="description" content="[^"]+"/);
+  assert.match(homeHtml, /<meta property="og:title"/);
+  for (const link of ["https://gggodlin.com/privacy", "https://gggodlin.com/terms", "https://gggodlin.com/refund"]) {
+    assert.ok(homeHtml.includes(`href="${link}"`), `missing footer legal link ${link}`);
+  }
+
+  const robots = await request("/robots.txt");
+  assert.equal(robots.status, 200);
+  const robotsTxt = await robots.text();
+  assert.match(robotsTxt, /Disallow: \/workspace/);
+  assert.match(robotsTxt, /Disallow: \/s\//);
+
+  const llms = await request("/llms.txt");
+  assert.equal(llms.status, 200);
+  assert.match(await llms.text(), /^# PR Review Cloud/m);
+
+  const dummyDb = {
+    prepare() {
+      return { bind() { return { async first() { return null; } }; } };
+    },
+  };
+  const unauth = await request("/workspace", { DB: dummyDb });
+  assert.equal(unauth.status, 401);
+  const unauthHtml = await unauth.text();
+  assert.match(unauthHtml, /class="signin-card"/);
+  assert.match(unauthHtml, /read:user/);
+  assert.match(unauthHtml, /href="\/auth\/github">Sign in with GitHub/);
+  assert.match(unauthHtml, /href="\/sample"/);
+});

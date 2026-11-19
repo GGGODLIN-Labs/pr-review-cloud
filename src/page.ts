@@ -601,6 +601,97 @@ const styles = `
     font-size: .85rem;
     background: var(--well);
   }
+  .intro-banner {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 16px;
+    padding: clamp(1.15rem, 3vw, 1.65rem);
+    margin-block-end: 1.5rem;
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem 1.5rem;
+  }
+  .intro-copy { max-inline-size: 40rem; }
+  .intro-eyebrow {
+    font-family: var(--font-mono);
+    font-size: .75rem;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+    margin: 0 0 .35rem;
+  }
+  .intro-title {
+    font-size: clamp(1.2rem, 2.4vw, 1.5rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 .35rem;
+    line-height: 1.3;
+  }
+  .intro-desc {
+    margin: 0;
+    color: var(--muted);
+    font-size: .925rem;
+  }
+  .intro-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .6rem;
+    align-items: center;
+  }
+  .signin-card {
+    max-inline-size: 36rem;
+    margin: clamp(1.5rem, 6vw, 4rem) auto;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 16px;
+    padding: clamp(1.5rem, 4vw, 2.25rem);
+    box-shadow: var(--shadow-float);
+  }
+  .signin-card h1 {
+    margin: 0 0 .6rem;
+    font-size: 1.55rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+  }
+  .signin-card p { margin: 0 0 1rem; color: var(--muted); }
+  .trust-list {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0 1.4rem;
+    border-top: 1px solid var(--rule);
+  }
+  .trust-list li {
+    padding: .55rem 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: .875rem;
+    color: var(--ink);
+  }
+  .trust-list li span { color: var(--muted); }
+  .site-footer {
+    margin-top: auto;
+    padding: 1.5rem 0 2.25rem;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem 1.5rem;
+    font-size: .8125rem;
+    color: var(--subtle);
+  }
+  .site-footer nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.25rem;
+  }
+  .site-footer a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .site-footer a:hover { color: var(--ink); }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; animation: none !important; }
   }
@@ -616,6 +707,87 @@ export function faviconResponse(): Response {
   });
 }
 
+export function robotsTxtResponse(): Response {
+  const body = [
+    "User-agent: *",
+    "Allow: /",
+    "Allow: /sample",
+    "Disallow: /workspace",
+    "Disallow: /s/",
+    "Disallow: /auth/",
+    "Disallow: /api/",
+    "",
+  ].join("\n");
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+export function llmsTxtResponse(): Response {
+  const body = [
+    "# PR Review Cloud",
+    "",
+    "> Zero-LLM-burn cloud workspace for storing, comparing, and sharing multi-axis pull request review reports produced locally by claude-pr-review.",
+    "",
+    "## Public Routes",
+    "",
+    "- [Live 2-round sample](https://app.gggodlin.com/sample): Interactive read-only demonstration of Round 1 and Round 2 finding reconciliation (`FIXED`, `STILL_OPEN`, `STALE`).",
+    "- [Workspace sign-in](https://app.gggodlin.com/workspace): Private workspace authenticated with GitHub OAuth (`read:user` scope only; no repository access).",
+    "- [GGGODLIN Labs home](https://gggodlin.com/): Product overview, pricing, privacy policy, terms of service, and refund policy.",
+    "- [claude-pr-review CLI](https://github.com/GGGODLIN/claude-pr-review): Open-source local review runner that generates `Report projection schema: 2` and `3` Markdown reports.",
+    "",
+  ].join("\n");
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
+export function homeIntroBanner(signedIn: boolean): string {
+  return `<section class="intro-banner" aria-label="PR Review Cloud 簡介">
+    <div class="intro-copy">
+      <p class="intro-eyebrow">ZERO-LLM-BURN REVIEW HUB · SCHEMA 2</p>
+      <p class="intro-title">本機多模型 PR 審查，雲端跨輪對帳與可撤銷分享</p>
+      <p class="intro-desc">在開發機以開源 CLI 跑完審查並上傳 <code>.md</code> 報告；雲端不呼叫任何語言模型、不存模型金鑰，直接呈現每輪修復狀態。</p>
+    </div>
+    <div class="intro-actions">
+      ${signedIn
+        ? '<a class="btn btn-primary" href="/workspace">前往工作區</a>'
+        : '<a class="btn btn-primary" href="/auth/github">Sign in with GitHub</a>'}
+      <a class="btn" href="https://github.com/GGGODLIN/claude-pr-review" rel="noopener noreferrer">安裝開源 CLI</a>
+    </div>
+  </section>`;
+}
+
+export function signInRequiredPage(): Response {
+  return htmlResponse("需要登入", `
+    <section class="signin-card" aria-label="登入 PR Review Cloud 工作區">
+      <p class="intro-eyebrow">GITHUB SIGN-IN · WORKSPACE</p>
+      <h1>登入 PR Review Cloud 工作區</h1>
+      <p>使用 GitHub 帳號登入後，即可保存本機 <code>claude-pr-review</code> 報告、對照同一 PR 的跨輪修復進度、簽發 CLI 上傳金鑰並建立可隨時撤銷的唯讀分享連結。</p>
+      <ul class="trust-list">
+        <li>最小權限授權：<span>僅向 GitHub 索取 <code>read:user</code> 身分識別，不存取任何程式碼儲存庫。</span></li>
+        <li>預設私有保存：<span>所有上傳報告預設僅本人可讀，公開分享連結撤銷後立即回傳 404。</span></li>
+        <li>零伺服器 LLM 費用：<span>伺服器端不代跑模型推論、不保存模型 API 金鑰。</span></li>
+      </ul>
+      <div class="intro-actions">
+        <a class="btn btn-primary" href="/auth/github">Sign in with GitHub</a>
+        <a class="btn" href="/sample">先看 2 輪公開範例</a>
+      </div>
+    </section>
+  `, 401, false, {
+    description: "登入 PR Review Cloud 工作區，管理本機多模型 PR 審查報告與可撤銷分享連結。",
+    privatePage: true,
+  });
+}
+
 function roundNavigation(round: 1 | 2): string {
   return `<nav class="rounds" aria-label="審查輪次">
   <a href="/sample?round=1"${round === 1 ? ' aria-current="page"' : ""}>Round 1</a>
@@ -623,15 +795,38 @@ function roundNavigation(round: 1 | 2): string {
 </nav>`;
 }
 
-export function htmlResponse(title: string, content: string, status = 200, signedIn = false): Response {
+export interface HtmlMetaOptions {
+  description?: string;
+  privatePage?: boolean;
+}
+
+const defaultDescription = "PR Review Cloud — 本機多模型 PR 審查的雲端報告工作區，提供跨輪修復對帳與即時可撤銷分享，伺服器零模型推論成本。";
+
+export function htmlResponse(
+  title: string,
+  content: string,
+  status = 200,
+  signedIn = false,
+  meta: HtmlMetaOptions = {},
+): Response {
+  const description = meta.description ?? defaultDescription;
+  const fullTitle = `${title} · PR Review Cloud`;
+  const seoMeta = meta.privatePage
+    ? '  <meta name="robots" content="noindex">'
+    : `  <meta property="og:type" content="website">
+  <meta property="og:title" content="${escapeHtml(fullTitle)}">
+  <meta property="og:description" content="${escapeHtml(description)}">
+  <meta name="twitter:card" content="summary">`;
   const html = `<!doctype html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="pr-review-cloud-version" content="1">
+  <meta name="description" content="${escapeHtml(description)}">
+${seoMeta}
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <title>${escapeHtml(title)} · PR Review Cloud</title>
+  <title>${escapeHtml(fullTitle)}</title>
   <style>${styles}</style>
 </head>
 <body>
@@ -658,6 +853,16 @@ export function htmlResponse(title: string, content: string, status = 200, signe
       <main id="main-content">
         ${content}
       </main>
+      <footer class="site-footer">
+        <div>© 2026 GGGODLIN Labs · Zero-LLM-burn cloud workspace</div>
+        <nav aria-label="頁尾連結">
+          <a href="https://gggodlin.com/privacy" rel="noopener noreferrer">Privacy</a>
+          <a href="https://gggodlin.com/terms" rel="noopener noreferrer">Terms</a>
+          <a href="https://gggodlin.com/refund" rel="noopener noreferrer">Refunds</a>
+          <a href="https://gggodlin.com" rel="noopener noreferrer">gggodlin.com</a>
+          <a href="https://github.com/GGGODLIN/claude-pr-review" rel="noopener noreferrer">CLI</a>
+        </nav>
+      </footer>
     </div>
   </div>
 </body>
@@ -705,8 +910,12 @@ function renderToc(toc: TocHeading[]): string {
   </details>`;
 }
 
-export function reportPage(title: string, body: string, options: { round?: 1 | 2; actions?: string; signedIn?: boolean } = {}): Response {
-  const { round, actions, signedIn } = options;
+export function reportPage(
+  title: string,
+  body: string,
+  options: { round?: 1 | 2; intro?: string; actions?: string; signedIn?: boolean; privatePage?: boolean } = {},
+): Response {
+  const { round, intro, actions, signedIn, privatePage } = options;
   const rendered = renderReportWithMeta(body);
   const canFilterOpen = rendered.hasStillOpenRows && rendered.hasResolvedOrStaleRows;
   const filterInputs = canFilterOpen ? `
@@ -720,6 +929,7 @@ export function reportPage(title: string, body: string, options: { round?: 1 | 2
     </div>
   ` : "";
   return htmlResponse(title, `
+    ${intro ?? ""}
     ${round ? roundNavigation(round) : ""}
     ${actions ?? ""}
     ${renderConvergenceCard(rendered.continuity)}
@@ -732,5 +942,5 @@ export function reportPage(title: string, body: string, options: { round?: 1 | 2
       </div>
       <article>${rendered.html}</article>
     </div>
-  `, 200, signedIn);
+  `, 200, signedIn, { privatePage: privatePage ?? signedIn });
 }

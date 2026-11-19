@@ -1,6 +1,8 @@
 import { apiKeyOwner, completeLogin, logout, signedInUser, startLogin, type Env } from "./auth.ts";
 import { polarWebhook, startCheckout } from "./billing.ts";
-import { faviconResponse, htmlResponse, reportPage } from "./page.ts";
+import {
+  faviconResponse, homeIntroBanner, llmsTxtResponse, reportPage, robotsTxtResponse, signInRequiredPage,
+} from "./page.ts";
 import { sampleReports } from "./sample.ts";
 import { uploadReport } from "./upload.ts";
 import {
@@ -24,10 +26,22 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   if (path === "/favicon.svg" || path === "/favicon.ico") {
     return faviconResponse();
   }
+  if (path === "/robots.txt") {
+    return robotsTxtResponse();
+  }
+  if (path === "/llms.txt") {
+    return llmsTxtResponse();
+  }
   if (path === "/" || path === "/sample") {
     const round = url.searchParams.get("round") === "1" ? 1 : 2;
-    const user = path === "/" && db ? await signedInUser(request, db).catch(() => null) : null;
-    return reportPage(`公開審查範例 · Round ${round}`, sampleReports[round], { round, signedIn: Boolean(user) });
+    const user = db ? await signedInUser(request, db).catch(() => null) : null;
+    const signedIn = Boolean(user);
+    return reportPage(`公開審查範例 · Round ${round}`, sampleReports[round], {
+      round,
+      signedIn,
+      privatePage: false,
+      intro: path === "/" ? homeIntroBanner(signedIn) : undefined,
+    });
   }
 
   const origin = url.origin;
@@ -55,7 +69,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   }
   if (path === "/auth/logout") return logout(request, db);
   const user = await signedInUser(request, db);
-  if (!user) return htmlResponse("需要登入", '<p><a href="/auth/github">Sign in with GitHub</a></p>', 401);
+  if (!user) return signInRequiredPage();
   if (path === "/workspace") return workspacePage(db, user, env.BILLING_MODE === "polar_live");
   if (path === "/workspace/checkout") return startCheckout(env, user.id, url.searchParams.get("plan"));
   if (path === "/workspace/keys") return issueKey(db, user.id, origin);

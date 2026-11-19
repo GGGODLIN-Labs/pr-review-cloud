@@ -162,6 +162,9 @@ test("GitHub login unlocks the workspace, one-time CLI key, history, raw downloa
   const cookie = cookieFrom(callback, "__Host-prc_session");
   const workspace = await view(fetch, "/workspace", cookie);
   assert.equal(workspace.status, 200);
+  const sampleSignedIn = await view(fetch, "/sample", cookie);
+  assert.equal(sampleSignedIn.status, 200);
+  assert.match(await sampleSignedIn.text(), /href="\/workspace">工作區<\/a>/);
   const home = await workspace.text();
   assert.match(home, /octo-reviewer/);
   assert.match(home, /Cmd \+ Shift \+ \./);
