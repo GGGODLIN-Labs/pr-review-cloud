@@ -1,6 +1,7 @@
 import { Webhook } from "standardwebhooks";
 import { redirect, type Env } from "./auth.ts";
 import { readBoundedBody } from "./body.ts";
+import { errorPage } from "./page.ts";
 
 const encoder = new TextEncoder();
 const fields = (value: unknown): Record<string, unknown> | undefined =>
@@ -34,12 +35,16 @@ async function eventUser(data: Record<string, unknown>, secret: string): Promise
 }
 
 export async function startCheckout(env: Env, userId: string, plan: string | null): Promise<Response> {
-  if (env.BILLING_MODE !== "polar_live") return new Response("付費升級即將開放。", { status: 403 });
-  if (plan !== "pro" && plan !== "pro_pass") return new Response("無效的付費方案。", { status: 400 });
+  if (env.BILLING_MODE !== "polar_live") {
+    return errorPage("付費升級即將開放", "付費升級即將開放。目前工作區免費方案（最多 20 份報告）已可直接試用。", 403, { signedIn: true });
+  }
+  if (plan !== "pro" && plan !== "pro_pass") {
+    return errorPage("無效的付費方案", "無效的付費方案，請從工作區選擇 Pro 或 Pro Pass。", 400, { signedIn: true });
+  }
   const configured = plan === "pro" ? env.POLAR_PRO_CHECKOUT_URL : env.POLAR_PRO_PASS_CHECKOUT_URL;
   const target = URL.parse(configured ?? "");
   if (!env.POLAR_WEBHOOK_SECRET || !target || target.protocol !== "https:" || target.username || target.password) {
-    return new Response("結帳暫時無法使用。", { status: 503 });
+    return errorPage("結帳暫時無法使用", "結帳暫時無法使用，請稍後再試。", 503, { signedIn: true });
   }
   target.searchParams.set("customer_external_id", userId);
   target.searchParams.set("metadata[user_id]", userId);

@@ -158,3 +158,25 @@ test("home banner, legal footer, meta description, robots.txt, llms.txt and rich
   assert.match(unauthHtml, /href="\/auth\/github">Sign in with GitHub/);
   assert.match(unauthHtml, /href="\/sample"/);
 });
+
+test("HEAD works on GET routes, unknown POST returns 404 HTML, /login redirects to OAuth, and browser 413/404 render themed HTML", async () => {
+  for (const path of ["/", "/sample", "/robots.txt", "/llms.txt", "/favicon.svg"]) {
+    const res = await worker.fetch(new Request(`https://app.example${path}`, { method: "HEAD" }), {});
+    assert.equal(res.status, 200, `HEAD ${path}`);
+    assert.equal(await res.text(), "", `HEAD ${path} body must be empty`);
+    assert.equal(res.headers.get("Cache-Control"), "no-store");
+  }
+
+  const unknownPost = await worker.fetch(new Request("https://app.example/does-not-exist", { method: "POST" }), {});
+  assert.equal(unknownPost.status, 404);
+  assert.match(unknownPost.headers.get("Content-Type") ?? "", /text\/html/);
+  assert.match(await unknownPost.text(), /找不到頁面/);
+
+  const wrongMethod = await worker.fetch(new Request("https://app.example/sample", { method: "POST" }), {});
+  assert.equal(wrongMethod.status, 405);
+  assert.equal(wrongMethod.headers.get("Allow"), "GET, HEAD");
+
+  const login = await request("/login");
+  assert.equal(login.status, 302);
+  assert.equal(login.headers.get("Location"), "/auth/github");
+});

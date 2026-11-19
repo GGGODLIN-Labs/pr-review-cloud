@@ -270,8 +270,15 @@ test("file picker and CLI apply identical byte, UTF-8, filename and empty checks
       ["review.md", new Uint8Array(131073).fill(0xff), 413, null],
       ["review.AUDIT.MD", mainReport, 400, /主報告.*\.md/],
     ]) {
-      const body = await errorWithoutCredentials(await upload(filename, bytes), { key, cookie, status });
+      const response = await upload(filename, bytes);
+      const body = await errorWithoutCredentials(response, { key, cookie, status });
       if (message) assert.match(body, message);
+      if (upload === picker) {
+        assert.match(response.headers.get("Content-Type") ?? "", /text\/html/, `browser ${status} must render HTML`);
+        assert.match(body, /返回工作區/);
+      } else {
+        assert.doesNotMatch(response.headers.get("Content-Type") ?? "", /text\/html/, `CLI ${status} stays plain`);
+      }
     }
   }
   const multipart = await fetch("/api/reports", {

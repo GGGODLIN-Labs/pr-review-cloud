@@ -788,6 +788,28 @@ export function signInRequiredPage(): Response {
   });
 }
 
+export function errorPage(
+  title: string,
+  message: string,
+  status: number,
+  options: { signedIn?: boolean; backHref?: string; backLabel?: string } = {},
+): Response {
+  const { signedIn = false, backHref, backLabel } = options;
+  const href = backHref ?? (signedIn ? "/workspace" : "/");
+  const label = backLabel ?? (signedIn ? "返回工作區" : "返回首頁");
+  return htmlResponse(title, `
+    <section class="signin-card" aria-label="${escapeHtml(title)}">
+      <p class="intro-eyebrow">HTTP ${status}</p>
+      <h1>${escapeHtml(title)}</h1>
+      <p>${escapeHtml(message)}</p>
+      <div class="intro-actions">
+        <a class="btn btn-primary" href="${escapeHtml(href)}">${escapeHtml(label)}</a>
+        <a class="btn" href="/sample">檢視公開範例</a>
+      </div>
+    </section>
+  `, status, signedIn, { privatePage: true });
+}
+
 function roundNavigation(round: 1 | 2): string {
   return `<nav class="rounds" aria-label="審查輪次">
   <a href="/sample?round=1"${round === 1 ? ' aria-current="page"' : ""}>Round 1</a>

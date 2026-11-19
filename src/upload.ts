@@ -1,41 +1,48 @@
 import { lexer, type Tokens } from "marked";
 import { readBoundedBody } from "./body.ts";
+import { errorPage } from "./page.ts";
 
 const maxBytes = 131_072;
 const auditFile = "不接受 .audit.md 稽核副檔，請改傳不含完整原始證據的主報告 .md。";
+const tooLarge = "報告檔案超過 128 KB（131,072 bytes）上限，請精簡非必要內容後重新上傳。";
+
+function uploadError(fromCLI: boolean, title: string, message: string, status: number): Response {
+  if (fromCLI) return status === 413 ? new Response(null, { status }) : new Response(message, { status });
+  return errorPage(title, message, status, { signedIn: true, backHref: "/workspace", backLabel: "返回工作區" });
+}
 
 export async function uploadReport(request: Request, db: D1Database, userId: string, fromCLI: boolean): Promise<Response> {
   const type = request.headers.get("Content-Type") ?? "";
   const multipart = /^multipart\/form-data(?:\s*;|$)/i.test(type);
-  if (!multipart && !fromCLI) return new Response("請從選檔表單上傳報告。", { status: 400 });
+  if (!multipart && !fromCLI) return uploadError(false, "上傳格式錯誤", "請從選檔表單上傳報告。", 400);
   let filename = multipart ? null : new URL(request.url).searchParams.get("filename") ?? request.headers.get("X-Filename");
-  if (filename && /\.audit\.md$/i.test(filename)) return new Response(auditFile, { status: 400 });
+  if (filename && /\.audit\.md$/i.test(filename)) return uploadError(fromCLI, "不支援稽核副檔", auditFile, 400);
 
   // Multipart needs a separate allowance for framing before we can measure the file itself.
   let bytes: Uint8Array | null;
   try {
     bytes = await readBoundedBody(request, maxBytes + (multipart ? 16_384 : 0));
-    if (!bytes) return new Response(null, { status: 413 });
+    if (!bytes) return uploadError(fromCLI, "檔案超過上限", tooLarge, 413);
     if (multipart) {
       const form = await new Response(bytes, { headers: { "Content-Type": type } }).formData();
       const file = form.get("file");
-      if (!file || typeof file === "string" || !file.name) return new Response("請選擇報告檔案。", { status: 400 });
+      if (!file || typeof file === "string" || !file.name) return uploadError(fromCLI, "未選取檔案", "請選擇報告檔案。", 400);
       filename = file.name;
-      if (/\.audit\.md$/i.test(filename)) return new Response(auditFile, { status: 400 });
-      if (file.size > maxBytes) return new Response(null, { status: 413 });
+      if (/\.audit\.md$/i.test(filename)) return uploadError(fromCLI, "不支援稽核副檔", auditFile, 400);
+      if (file.size > maxBytes) return uploadError(fromCLI, "檔案超過上限", tooLarge, 413);
       bytes = new Uint8Array(await file.arrayBuffer());
     }
   } catch {
-    return new Response("無法讀取上傳檔案。", { status: 400 });
+    return uploadError(fromCLI, "讀取檔案失敗", "無法讀取上傳檔案。", 400);
   }
 
   let markdown: string;
   try {
     markdown = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
   } catch {
-    return new Response("報告必須使用 UTF-8 編碼。", { status: 400 });
+    return uploadError(fromCLI, "編碼格式不符", "報告必須使用 UTF-8 編碼。", 400);
   }
-  if (!markdown.trim()) return new Response("報告內容不可空白。", { status: 400 });
+  if (!markdown.trim()) return uploadError(fromCLI, "報告內容空白", "報告內容不可空白。", 400);
 
   const tokens = lexer(markdown.replace(/^﻿/, ""));
   const headings = tokens.filter((token): token is Tokens.Heading => token.type === "heading" && Boolean(token.text.trim()));
@@ -60,11 +67,13 @@ export async function uploadReport(request: Request, db: D1Database, userId: str
     `).bind(id, title, projection ? prs[0] : null, projection ? 2 : null, continuity, markdown, bytes.byteLength, userId).run();
   } catch (error) {
     if (error instanceof Error && /full|quota|space|storage|capacity/i.test(error.message)) {
-      return new Response("雲端資料庫儲存空間已達平台容量上限，請稍後再試或刪除舊報告。", { status: 507 });
+      return uploadError(fromCLI, "儲存空間已滿", "雲端資料庫儲存空間已達平台容量上限，請稍後再試或刪除舊報告。", 507);
     }
     throw error;
   }
-  if (!result.meta.changes) return new Response("報告已達配額，請刪除舊報告或升級方案。", { status: 409 });
+  if (!result.meta.changes) {
+    return uploadError(fromCLI, "已達報告數量上限", "報告已達配額，請刪除舊報告或升級方案。", 409);
+  }
   const location = `/workspace/reports/${id}`;
   return fromCLI
     ? Response.json({ id }, { status: 201, headers: { Location: location } })

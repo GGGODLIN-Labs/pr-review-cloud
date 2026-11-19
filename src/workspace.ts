@@ -1,7 +1,7 @@
 import { randomToken, redirect, tokenHash } from "./auth.ts";
 import { readBoundedBody } from "./body.ts";
 import { escapeHtml } from "./markdown.ts";
-import { htmlResponse, reportPage } from "./page.ts";
+import { errorPage, htmlResponse, reportPage } from "./page.ts";
 
 export const reportRoute = /^\/workspace\/reports\/([A-Za-z0-9-]+)(?:\/(raw|share|unshare|delete))?$/;
 export const revokeRoute = /^\/workspace\/keys\/([A-Za-z0-9-]+)\/revoke$/;
@@ -98,7 +98,11 @@ export async function revokeKey(db: D1Database, userId: string, keyId: string): 
 export async function readReport(db: D1Database, userId: string, reportId: string, raw: boolean, origin: string): Promise<Response> {
   const report = await db.prepare("SELECT title, markdown_body, share_token FROM reports WHERE id = ? AND user_id = ?")
     .bind(reportId, userId).first<{ title: string; markdown_body: string; share_token: string | null }>();
-  if (!report) return new Response("找不到報告。", { status: 404 });
+  if (!report) {
+    return raw
+      ? new Response("找不到報告。", { status: 404 })
+      : errorPage("找不到報告", "這份報告可能已被刪除，或你不具備檢視權限。", 404, { signedIn: true });
+  }
   if (raw) {
     return new Response(report.markdown_body, {
       headers: {
@@ -130,7 +134,9 @@ export async function readReport(db: D1Database, userId: string, reportId: strin
 export async function readShare(db: D1Database, token: string): Promise<Response> {
   const report = await db.prepare("SELECT title, markdown_body FROM reports WHERE share_token = ?")
     .bind(token).first<{ title: string; markdown_body: string }>();
-  return report ? reportPage(report.title, report.markdown_body) : new Response("找不到報告。", { status: 404 });
+  return report
+    ? reportPage(report.title, report.markdown_body)
+    : errorPage("分享連結已失效", "找不到報告。這條分享連結可能已遭撤銷，或原報告已被刪除。", 404);
 }
 
 export async function changeReport(
@@ -149,7 +155,9 @@ export async function changeReport(
       : null;
     const form = body ? new URLSearchParams(new TextDecoder().decode(body)) : null;
     if (form?.get("confirm_code_anchors") !== "1") {
-      return new Response("請先確認報告可能包含程式碼錨點片段。", { status: 400 });
+      return errorPage("需要確認分享範圍", "請先確認報告可能包含程式碼錨點片段。", 400, {
+        signedIn: true, backHref: `/workspace/reports/${reportId}`, backLabel: "返回報告",
+      });
     }
     result = await db.prepare(`
       UPDATE reports SET share_token = COALESCE(share_token, ?), shared_at = COALESCE(shared_at, CURRENT_TIMESTAMP)
@@ -159,6 +167,8 @@ export async function changeReport(
     result = await db.prepare("UPDATE reports SET share_token = NULL, shared_at = NULL WHERE id = ? AND user_id = ?")
       .bind(reportId, userId).run();
   }
-  if (!result.meta.changes) return new Response("找不到報告。", { status: 404 });
+  if (!result.meta.changes) {
+    return errorPage("找不到報告", "找不到報告，無法更新分享狀態。", 404, { signedIn: true });
+  }
   return redirect(`/workspace/reports/${reportId}`);
 }
