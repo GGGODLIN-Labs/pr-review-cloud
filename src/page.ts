@@ -107,8 +107,8 @@ const styles = `
     --well: #2c2924;
     --pass: #4cc38a;
     --pass-bg: rgba(76, 195, 138, 0.14);
-    --open: #e08161;
-    --open-bg: rgba(224, 129, 97, 0.16);
+    --open: #ef9a7c;
+    --open-bg: rgba(239, 154, 124, 0.14);
     --stale: #aaa398;
     --stale-bg: rgba(170, 163, 152, 0.14);
     --danger: #ef7c6b;
@@ -556,7 +556,15 @@ const styles = `
     justify-content: space-between;
   }
   .report-toc summary::-webkit-details-marker { display: none; }
-  .report-toc summary::after { content: "展開"; font-family: var(--font-mono); font-size: .75rem; color: var(--subtle); }
+  .report-toc summary::after {
+    content: "展開";
+    font-family: var(--font-mono);
+    font-size: .75rem;
+    color: var(--subtle);
+    flex-shrink: 0;
+    white-space: nowrap;
+    margin-inline-start: .75rem;
+  }
   .report-toc[open] summary::after { content: "收合"; }
   .report-toc ol {
     margin: .65rem 0 .2rem;
@@ -1089,7 +1097,7 @@ function renderPrCommentBox(
   return `<details class="report-toc pr-comment-box">
     <summary>GitHub PR Comment 摘要（可直接貼回 PR）</summary>
     <p class="hint">由原報告對帳欄位確定性整理（零 LLM 重寫），選取後複製即可貼上。</p>
-    <textarea class="copy-command" rows="${Math.min(10, lines.length + 1)}" readonly aria-label="GitHub PR Comment 摘要">${escapeHtml(snippet)}</textarea>
+    <textarea class="copy-command" id="pr-comment-summary" name="pr_comment_summary" rows="${Math.min(10, lines.length + 1)}" readonly aria-label="GitHub PR Comment 摘要">${escapeHtml(snippet)}</textarea>
   </details>`;
 }
 

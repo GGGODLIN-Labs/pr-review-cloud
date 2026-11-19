@@ -118,6 +118,9 @@ test("schema 2 reports render convergence meter, status badges, STILL_OPEN CSS f
   assert.match(html, /<div class="table-scroll"><table>/);
   assert.match(html, /<details class="report-toc">/);
   assert.match(html, /<h2 id="sec-/);
+  assert.match(html, /id="pr-comment-summary"/);
+  assert.match(html, /--open: #ef9a7c;/);
+  assert.match(html, /white-space: nowrap;/);
   assert.doesNotMatch(html, /<script\b/i);
 
   const samePageLink = renderReport("[Jump](#sec-summary) and [Blocked](/relative)");
