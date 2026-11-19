@@ -1,6 +1,6 @@
 import { apiKeyOwner, completeLogin, logout, signedInUser, startLogin, type Env } from "./auth.ts";
 import { polarWebhook, startCheckout } from "./billing.ts";
-import { htmlResponse, reportPage } from "./page.ts";
+import { faviconResponse, htmlResponse, reportPage } from "./page.ts";
 import { sampleReports } from "./sample.ts";
 import { uploadReport } from "./upload.ts";
 import {
@@ -20,6 +20,9 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     path === "/workspace/reports" || (action && action !== "raw") ? "POST" : "GET";
   if (request.method !== method) {
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: method } });
+  }
+  if (path === "/favicon.svg" || path === "/favicon.ico") {
+    return faviconResponse();
   }
   if (path === "/" || path === "/sample") {
     const round = url.searchParams.get("round") === "1" ? 1 : 2;

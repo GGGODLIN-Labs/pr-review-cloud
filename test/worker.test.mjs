@@ -39,6 +39,25 @@ test("unsigned visitors can read both locally reconciled sample rounds without o
   assert.equal(network.mock.callCount(), 0);
 });
 
+test("pages expose shared SVG favicon, nosniff header, overscroll dark background and zero scripts", async () => {
+  const home = await request("/");
+  assert.equal(home.status, 200);
+  assert.equal(home.headers.get("X-Content-Type-Options"), "nosniff");
+  const html = await home.text();
+  assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="\/favicon\.svg">/);
+  assert.match(html, /html:has\(#theme-dark:checked\)/);
+  assert.match(html, /#main-content/);
+  assert.doesNotMatch(html, /<script\b/i);
+
+  for (const path of ["/favicon.svg", "/favicon.ico"]) {
+    const icon = await request(path);
+    assert.equal(icon.status, 200, path);
+    assert.equal(icon.headers.get("Content-Type"), "image/svg+xml; charset=utf-8");
+    assert.equal(icon.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.match(await icon.text(), /<svg\b[^>]*viewBox="0 0 32 32"/);
+  }
+});
+
 test("public sample keeps working with no DB and with an unavailable DB", async () => {
   const brokenDB = {
     prepare() { throw new Error("D1 unavailable"); },
