@@ -587,12 +587,145 @@ const styles = `
   form { margin-block: .6rem; }
   .workspace-list { padding-inline-start: 0; list-style: none; display: grid; gap: .75rem; }
   .workspace-list li {
-    padding: .9rem 1rem;
+    padding: .95rem 1.1rem;
     border: 1px solid var(--rule);
     border-radius: 12px;
     background: var(--bg);
   }
-  .workspace-meta { display: block; color: var(--muted); font-size: .85rem; margin-top: .25rem; }
+  .workspace-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-block-end: 1.5rem;
+  }
+  .workspace-identity {
+    display: flex;
+    align-items: center;
+    gap: .85rem;
+  }
+  .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--rule-strong);
+    object-fit: cover;
+    background: var(--well);
+  }
+  .workspace-header h1 { margin: 0; font-size: 1.6rem; line-height: 1.2; letter-spacing: -0.02em; }
+  .workspace-login { margin: .15rem 0 0; color: var(--muted); font-size: .875rem; font-family: var(--font-mono); }
+  .workspace-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+    gap: 1rem;
+    margin-block-end: 1.5rem;
+  }
+  .workspace-grid section { margin-block: 0; }
+  .card h2 { margin-block: 0 .65rem; font-size: 1.1rem; letter-spacing: -0.01em; }
+  .quota-track {
+    height: 8px;
+    border-radius: 999px;
+    background: var(--well);
+    overflow: hidden;
+    margin-block: .65rem .85rem;
+  }
+  .quota-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--pass);
+  }
+  .quota-fill.is-high { background: var(--open); }
+  .report-row-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .4rem .8rem;
+  }
+  .report-row-title { font-weight: 600; text-decoration: none; color: var(--ink); }
+  .report-row-title:hover { color: var(--accent); text-decoration: underline; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: .15rem .55rem;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: .75rem;
+    font-weight: 500;
+    background: var(--well);
+    color: var(--muted);
+  }
+  .badge.is-shared { color: var(--pass); background: var(--pass-bg); }
+  .key-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem 1rem;
+  }
+  .danger-confirm { display: inline-block; }
+  .danger-confirm summary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.2rem;
+    padding: .35rem .8rem;
+    border-radius: 8px;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    font-size: .85rem;
+    font-weight: 500;
+    cursor: pointer;
+    list-style: none;
+  }
+  .danger-confirm summary::-webkit-details-marker { display: none; }
+  .danger-confirm summary:hover { background: var(--danger-bg); }
+  .danger-confirm[open] {
+    display: block;
+    margin-top: .5rem;
+    padding: .75rem .9rem;
+    border: 1px solid var(--danger);
+    border-radius: 10px;
+    background: var(--danger-bg);
+  }
+  .danger-confirm .confirm-note {
+    margin: .5rem 0 .45rem;
+    font-size: .85rem;
+    color: var(--ink);
+  }
+  .report-actions {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    padding: 1rem 1.25rem;
+    margin-block-end: 1rem;
+    display: grid;
+    gap: .85rem;
+  }
+  .report-actions-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem 1rem;
+  }
+  .pr-timeline {
+    align-items: center;
+    padding: .75rem 1rem;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    margin-block-end: 1rem;
+  }
+  .pr-timeline-label {
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    color: var(--subtle);
+    margin-inline-end: .35rem;
+  }
+  .upload-form { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+  .hint { color: var(--muted); font-size: .85rem; margin: .45rem 0 0; }
+  .workspace-meta { display: block; color: var(--muted); font-size: .825rem; margin-top: .3rem; font-family: var(--font-mono); }
   .copy-command {
     box-sizing: border-box;
     inline-size: 100%;

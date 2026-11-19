@@ -47,13 +47,24 @@ export async function uploadReport(request: Request, db: D1Database, userId: str
   const tokens = lexer(markdown.replace(/^﻿/, ""));
   const headings = tokens.filter((token): token is Tokens.Heading => token.type === "heading" && Boolean(token.text.trim()));
   const fields = tokens.flatMap((token) => token.type === "paragraph" && typeof token.text === "string" ? token.text.split(/\r?\n/) : []);
+  const schemaLine = fields.map((line) => line.match(/^\*\*Report projection schema\*\*:\s*([23])\s*$/)?.[1]).find(Boolean);
+  const schemaVersion = schemaLine ? Number.parseInt(schemaLine, 10) : null;
   const prs = fields.flatMap((line) => line.match(/^\*\*PR\*\*:\s*(\S.*)$/)?.slice(1) ?? []);
-  const projection = prs.length === 1 && fields.some((line) => /^\*\*Report projection schema\*\*:\s*2\s*$/.test(line));
+  const reviewSets = fields.flatMap((line) => line.match(/^\*\*Review set identity\*\*:\s*(\S.*)$/)?.slice(1) ?? []);
+  const prRef = schemaVersion === 2 && prs.length === 1
+    ? prs[0]
+    : schemaVersion === 3 && reviewSets.length === 1
+      ? reviewSets[0]
+      : schemaVersion === 3 && prs.length === 1
+        ? prs[0]
+        : null;
+  const projection = schemaVersion !== null && prRef !== null;
   const continuity = projection
     ? fields.map((line) => line.match(/^\*\*Prior review continuity\*\*:\s*(\S.*)$/)?.[1]).find(Boolean) ?? null
     : null;
-  const title = (projection ? headings.find((heading) => heading.depth === 1)?.text : undefined)
+  const rawTitle = (projection ? headings.find((heading) => heading.depth === 1)?.text : undefined)
     ?? headings[0]?.text ?? filename?.trim() ?? "未命名報告";
+  const title = rawTitle.replace(/^`([^`]+)`$/, "$1").trim() || "未命名報告";
 
   const id = crypto.randomUUID();
   // A separate count and insert could admit two uploads competing for the remaining slot.
@@ -64,7 +75,7 @@ export async function uploadReport(request: Request, db: D1Database, userId: str
       SELECT ?, users.id, ?, ?, ?, ?, ?, ? FROM users
       WHERE users.id = ? AND (SELECT COUNT(*) FROM reports WHERE user_id = users.id)
         < CASE users.plan WHEN 'pro' THEN 500 WHEN 'pro_pass' THEN 500 ELSE 20 END
-    `).bind(id, title, projection ? prs[0] : null, projection ? 2 : null, continuity, markdown, bytes.byteLength, userId).run();
+    `).bind(id, title, prRef, projection ? schemaVersion : null, continuity, markdown, bytes.byteLength, userId).run();
   } catch (error) {
     if (error instanceof Error && /full|quota|space|storage|capacity/i.test(error.message)) {
       return uploadError(fromCLI, "儲存空間已滿", "雲端資料庫儲存空間已達平台容量上限，請稍後再試或刪除舊報告。", 507);

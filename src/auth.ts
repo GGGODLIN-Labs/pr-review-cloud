@@ -107,18 +107,27 @@ export async function completeLogin(request: Request, env: Env, origin: string):
   if (!user) return fail("GitHub 登入失敗", "無法建立使用者工作階段。", 503);
   const token = randomToken();
   const hash = await tokenHash(token);
+  await db.prepare("DELETE FROM sessions WHERE user_id = ? AND expires_at <= CURRENT_TIMESTAMP")
+    .bind(user.id).run();
   await db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, datetime('now', '+30 days'))")
     .bind(hash, user.id).run();
   return redirect("/workspace", 302, [clearState, cookie(sessionCookie, token, 30 * 24 * 60 * 60)]);
 }
 
-export async function signedInUser(request: Request, db: D1Database): Promise<{ id: string; github_login: string; plan: string } | null> {
+export interface SignedInUser {
+  id: string;
+  github_login: string;
+  plan: string;
+  avatar_url: string | null;
+}
+
+export async function signedInUser(request: Request, db: D1Database): Promise<SignedInUser | null> {
   const token = readCookie(request, sessionCookie);
   if (!token) return null;
   return db.prepare(`
-    SELECT users.id, users.github_login, users.plan FROM sessions JOIN users ON sessions.user_id = users.id
+    SELECT users.id, users.github_login, users.plan, users.avatar_url FROM sessions JOIN users ON sessions.user_id = users.id
     WHERE sessions.token_hash = ? AND sessions.expires_at > CURRENT_TIMESTAMP
-  `).bind(await tokenHash(token)).first();
+  `).bind(await tokenHash(token)).first<SignedInUser>();
 }
 
 export async function logout(request: Request, db: D1Database): Promise<Response> {

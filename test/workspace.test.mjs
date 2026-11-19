@@ -659,3 +659,41 @@ test("webhook preserves Pro Pass across subscription churn, ignores stale events
   assert.equal((await fetch("/webhooks/polar", polarRequest("lane-pass-paid", passPaidEarlier))).status, 200);
   await expectQuota(fetch, crossLane.cookie, "pro_pass", 500);
 });
+
+test("workspace builds same-PR round timeline, shows quota bar, avatar, safe confirm, Schema 3 metadata and --fail-with-body", async (t) => {
+  const { fetch, account, db } = fixture(t);
+  const { cookie, key } = account("timeline-owner");
+  db.prepare("UPDATE users SET avatar_url = ? WHERE id = ?")
+    .run("https://avatars.example/timeline.png", "timeline-owner");
+
+  const r1 = "# PR #42 Round 1\n\n**Report projection schema**: 2\n**PR**: owner/repo#42\n\nInitial findings.";
+  const r2 = "# PR #42 Round 2\n\n**Report projection schema**: 2\n**PR**: owner/repo#42\n**Prior review continuity**: CHECKED (fixed 2 / still-open 1 / stale 0)\n\nFollow-up.";
+  const otherPr = "# PR #99 Unrelated\n\n**Report projection schema**: 2\n**PR**: owner/repo#99\n\nOther.";
+  const schema3 = "# Group Review Set\n\n**Report projection schema**: 3\n**Review set identity**: multi-pr-alpha\n**Prior review continuity**: CHECKED (fixed 3 / still-open 1 / stale 0)\n\nGroup findings.";
+
+  const p1 = await uploadedPath(await cli(fetch, key, r1));
+  const p2 = await uploadedPath(await cli(fetch, key, r2));
+  const pOther = await uploadedPath(await cli(fetch, key, otherPr));
+  const p3 = await uploadedPath(await cli(fetch, key, schema3));
+
+  const r2Html = await (await view(fetch, p2, cookie)).text();
+  assert.match(r2Html, /class="rounds pr-timeline"/);
+  assert.ok(r2Html.includes(`href="${p1}"`), "Round 2 must link back to Round 1 of same PR");
+  assert.ok(r2Html.includes(`href="${p2}" aria-current="page"`));
+  assert.ok(!r2Html.includes(`href="${pOther}"`), "Timeline must not mix unrelated PRs");
+  assert.match(r2Html, /<details class="danger-confirm">/);
+
+  const dashHtml = await workspace(fetch, cookie);
+  assert.match(dashHtml, /已用 4 \/ 20 份/);
+  assert.match(dashHtml, /class="quota-fill"/);
+  assert.match(dashHtml, /src="https:\/\/avatars\.example\/timeline\.png"/);
+  assert.match(dashHtml, /multi-pr-alpha/);
+  assert.match(dashHtml, /CHECKED \(fixed 3 \/ still-open 1 \/ stale 0\)/);
+
+  const s3Html = await (await view(fetch, p3, cookie)).text();
+  assert.match(s3Html, /3 \/ 4 已修復（75%）/);
+
+  const issuedHtml = await (await fetch("/workspace/keys", browser(cookie))).text();
+  assert.match(issuedHtml, /curl --fail-with-body -sS/);
+  assert.match(issuedHtml, /&lt;host__owner__repo&gt;/);
+});
