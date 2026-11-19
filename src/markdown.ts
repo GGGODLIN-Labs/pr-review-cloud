@@ -33,6 +33,7 @@ export interface RenderedReport {
   hasResolvedOrStaleRows: boolean;
   stillOpenRowCount: number;
   totalStatusRowCount: number;
+  stillOpenTitles: string[];
 }
 
 const exactStatusRe = /^(FIXED|STILL_OPEN|STALE)$/;
@@ -86,6 +87,7 @@ export function extractContinuityCounts(body: string): ContinuityCounts | null {
 class SafeRenderer extends Renderer {
   readonly toc: TocHeading[] = [];
   readonly headingSlugs = new Map<string, number>();
+  readonly stillOpenTitles: string[] = [];
   stillOpenRowCount = 0;
   resolvedOrStaleRowCount = 0;
 
@@ -134,8 +136,15 @@ class SafeRenderer extends Renderer {
         }
         cell += this.tablecell(row[k]);
       }
-      if (rowStatus === "STILL_OPEN") this.stillOpenRowCount += 1;
-      else if (rowStatus === "FIXED" || rowStatus === "STALE") this.resolvedOrStaleRowCount += 1;
+      if (rowStatus === "STILL_OPEN") {
+        this.stillOpenRowCount += 1;
+        const firstCell = row[0]?.text?.trim();
+        if (firstCell && this.stillOpenTitles.length < 5) {
+          this.stillOpenTitles.push(firstCell);
+        }
+      } else if (rowStatus === "FIXED" || rowStatus === "STALE") {
+        this.resolvedOrStaleRowCount += 1;
+      }
       const statusAttr = rowStatus ? ` data-row-status="${rowStatus}"` : "";
       body += `<tr${statusAttr}>\n${cell}</tr>\n`;
     }
@@ -186,6 +195,7 @@ export function renderReportWithMeta(body: string): RenderedReport {
     hasResolvedOrStaleRows: renderer.resolvedOrStaleRowCount > 0,
     stillOpenRowCount: renderer.stillOpenRowCount,
     totalStatusRowCount: renderer.stillOpenRowCount + renderer.resolvedOrStaleRowCount,
+    stillOpenTitles: renderer.stillOpenTitles,
   };
 }
 

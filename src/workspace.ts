@@ -5,7 +5,7 @@ import { errorPage, htmlResponse, reportPage } from "./page.ts";
 
 export const reportRoute = /^\/workspace\/reports\/([A-Za-z0-9-]+)(?:\/(raw|share|unshare|delete))?$/;
 export const revokeRoute = /^\/workspace\/keys\/([A-Za-z0-9-]+)\/revoke$/;
-export const sharedRoute = /^\/s\/([A-Za-z0-9_-]{43})$/;
+export const sharedRoute = /^\/s\/([A-Za-z0-9_-]{43})(?:\/(raw))?$/;
 
 interface ReportSummary {
   id: string;
@@ -174,6 +174,26 @@ function renderPrTimeline(
   </nav>`;
 }
 
+function downloadFilename(title: string, fallbackId: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  const safeFallback = fallbackId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 36) || "report";
+  return `${slug || safeFallback}.md`;
+}
+
+function rawMarkdownResponse(markdown: string, title: string, fallbackId: string): Response {
+  return new Response(markdown, {
+    headers: {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${downloadFilename(title, fallbackId)}"`,
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
 export async function readReport(db: D1Database, userId: string, reportId: string, raw: boolean, origin: string): Promise<Response> {
   const report = await db.prepare("SELECT title, pr_ref, markdown_body, share_token FROM reports WHERE id = ? AND user_id = ?")
     .bind(reportId, userId).first<{ title: string; pr_ref: string | null; markdown_body: string; share_token: string | null }>();
@@ -183,13 +203,7 @@ export async function readReport(db: D1Database, userId: string, reportId: strin
       : errorPage("找不到報告", "這份報告可能已被刪除，或你不具備檢視權限。", 404, { signedIn: true });
   }
   if (raw) {
-    return new Response(report.markdown_body, {
-      headers: {
-        "Content-Type": "text/markdown; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${reportId}.md"`,
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
+    return rawMarkdownResponse(report.markdown_body, report.title, reportId);
   }
   let timeline = "";
   if (report.pr_ref) {
@@ -201,13 +215,14 @@ export async function readReport(db: D1Database, userId: string, reportId: strin
     timeline = renderPrTimeline(report.pr_ref, siblings.results, reportId);
   }
   const path = `/workspace/reports/${reportId}`;
+  const shareUrl = report.share_token ? `${origin}/s/${report.share_token}` : undefined;
   const share = report.share_token ? `
     <div class="report-actions-bar">
       <span class="badge is-shared">已開啟唯讀分享</span>
       <a class="btn" href="/s/${encodeURIComponent(report.share_token)}">開啟唯讀分享頁</a>
       <form method="post" action="${path}/unshare"><button>撤銷分享</button></form>
     </div>
-    <label>複製分享連結 <input class="copy-command" readonly value="${escapeHtml(`${origin}/s/${report.share_token}`)}"></label>
+    <label>複製分享連結 <input class="copy-command" readonly value="${escapeHtml(shareUrl ?? "")}"></label>
   ` : `
     <p class="hint">這份報告目前是私有。</p>
     <form method="post" action="${path}/share">
@@ -218,6 +233,7 @@ export async function readReport(db: D1Database, userId: string, reportId: strin
   return reportPage(report.title, report.markdown_body, {
     signedIn: true,
     privatePage: true,
+    shareUrl,
     intro: timeline || undefined,
     actions: `<section class="report-actions" aria-label="報告操作">
       <div class="report-actions-bar">
@@ -236,12 +252,27 @@ export async function readReport(db: D1Database, userId: string, reportId: strin
   });
 }
 
-export async function readShare(db: D1Database, token: string): Promise<Response> {
-  const report = await db.prepare("SELECT title, markdown_body FROM reports WHERE share_token = ?")
-    .bind(token).first<{ title: string; markdown_body: string }>();
-  return report
-    ? reportPage(report.title, report.markdown_body)
-    : errorPage("分享連結已失效", "找不到報告。這條分享連結可能已遭撤銷，或原報告已被刪除。", 404);
+export async function readShare(db: D1Database, token: string, raw = false, origin = ""): Promise<Response> {
+  const report = await db.prepare("SELECT id, title, markdown_body FROM reports WHERE share_token = ?")
+    .bind(token).first<{ id: string; title: string; markdown_body: string }>();
+  if (!report) {
+    return raw
+      ? new Response("找不到報告。", { status: 404 })
+      : errorPage("分享連結已失效", "找不到報告。這條分享連結可能已遭撤銷，或原報告已被刪除。", 404);
+  }
+  if (raw) {
+    return rawMarkdownResponse(report.markdown_body, report.title, report.id);
+  }
+  const sharePath = `/s/${encodeURIComponent(token)}`;
+  const shareUrl = origin ? `${origin}${sharePath}` : undefined;
+  return reportPage(report.title, report.markdown_body, {
+    privatePage: true,
+    shareUrl,
+    actions: `<div class="report-actions-bar" style="margin-block-end:1rem">
+      <span class="badge is-shared">唯讀分享報告</span>
+      <a class="btn" href="${sharePath}/raw">下載 Markdown 原檔</a>
+    </div>`,
+  });
 }
 
 export async function changeReport(

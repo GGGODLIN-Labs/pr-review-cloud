@@ -697,3 +697,58 @@ test("workspace builds same-PR round timeline, shows quota bar, avatar, safe con
   assert.match(issuedHtml, /curl --fail-with-body -sS/);
   assert.match(issuedHtml, /&lt;host__owner__repo&gt;/);
 });
+
+test("shared reports support /s/:token/raw download with immediate revocation, PR comment box, rich CLI receipt and audit-content fallback", async (t) => {
+  const { fetch, account } = fixture(t);
+  const { cookie, key } = account("share-raw-owner");
+  const reportBody = [
+    "# Auth Retry Guard",
+    "",
+    "**Report projection schema**: 2",
+    "**PR**: owner/repo#88",
+    "**Prior review continuity**: CHECKED (fixed 1 / still-open 1 / stale 0)",
+    "",
+    "| Finding | 結果 | 證據 |",
+    "| :-- | :-- | :-- |",
+    "| R1-01 · Cap verified | FIXED | Done |",
+    "| R1-02 · Timeout test | STILL_OPEN | Missing timeout spec |",
+  ].join("\n");
+
+  const uploadRes = await cli(fetch, key, reportBody, "pr-88.md");
+  assert.equal(uploadRes.status, 201);
+  const receipt = await uploadRes.json();
+  assert.match(receipt.url, /^https:\/\/app\.example\/workspace\/reports\/[A-Za-z0-9-]+$/);
+  assert.equal(receipt.raw_url, `${receipt.url}/raw`);
+  assert.equal(receipt.count, 1);
+  assert.equal(receipt.limit, 20);
+
+  const reportPath = `/workspace/reports/${receipt.id}`;
+  const ownerRaw = await view(fetch, `${reportPath}/raw`, cookie);
+  assert.match(ownerRaw.headers.get("Content-Disposition") ?? "", /filename="auth-retry-guard\.md"/);
+
+  const sharePath = await publish(fetch, reportPath, cookie);
+  const shareHtml = await (await fetch(sharePath)).text();
+  assert.ok(shareHtml.includes(`href="${sharePath}/raw"`));
+  assert.match(shareHtml, /class="report-toc pr-comment-box"/);
+  assert.match(shareHtml, /R1-02 · Timeout test/);
+  assert.ok(shareHtml.includes(`https://app.example${sharePath}`));
+  assert.doesNotMatch(shareHtml, /<script\b/i);
+
+  const shareRaw = await fetch(`${sharePath}/raw`);
+  assert.equal(shareRaw.status, 200);
+  assert.equal(shareRaw.headers.get("Cache-Control"), "no-store");
+  assert.equal(shareRaw.headers.get("X-Content-Type-Options"), "nosniff");
+  assert.match(shareRaw.headers.get("Content-Disposition") ?? "", /filename="auth-retry-guard\.md"/);
+  assert.equal(await shareRaw.text(), reportBody);
+
+  assert.equal((await fetch(`${reportPath}/unshare`, browser(cookie))).status, 303);
+  assert.equal((await fetch(`${sharePath}/raw`)).status, 404, "revoking share must immediately revoke /raw");
+
+  const auditWithoutFilename = await fetch("/api/reports", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}` },
+    body: "# PR Review Audit Sidecar\n\n**Report artifact role**: audit\n\nRaw evidence dump.",
+  });
+  assert.equal(auditWithoutFilename.status, 400);
+  assert.match(await auditWithoutFilename.text(), /主報告.*\.md/);
+});

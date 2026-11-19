@@ -1065,12 +1065,40 @@ function renderToc(toc: TocHeading[]): string {
   </details>`;
 }
 
+function renderPrCommentBox(
+  title: string,
+  continuity: ContinuityCounts | null,
+  stillOpenTitles: string[],
+  shareUrl?: string,
+): string {
+  if (!continuity) return "";
+  const lines = [
+    `### PR Review Summary — ${title}`,
+    `- Continuity: \`${continuity.raw}\``,
+  ];
+  if (stillOpenTitles.length > 0) {
+    lines.push("- Still open:");
+    for (const item of stillOpenTitles) {
+      lines.push(`  - ${item}`);
+    }
+  }
+  if (shareUrl) {
+    lines.push(`- Full report: ${shareUrl}`);
+  }
+  const snippet = lines.join("\n");
+  return `<details class="report-toc pr-comment-box">
+    <summary>GitHub PR Comment 摘要（可直接貼回 PR）</summary>
+    <p class="hint">由原報告對帳欄位確定性整理（零 LLM 重寫），選取後複製即可貼上。</p>
+    <textarea class="copy-command" rows="${Math.min(10, lines.length + 1)}" readonly aria-label="GitHub PR Comment 摘要">${escapeHtml(snippet)}</textarea>
+  </details>`;
+}
+
 export function reportPage(
   title: string,
   body: string,
-  options: { round?: 1 | 2; intro?: string; actions?: string; signedIn?: boolean; privatePage?: boolean } = {},
+  options: { round?: 1 | 2; intro?: string; actions?: string; signedIn?: boolean; privatePage?: boolean; shareUrl?: string } = {},
 ): Response {
-  const { round, intro, actions, signedIn, privatePage } = options;
+  const { round, intro, actions, signedIn, privatePage, shareUrl } = options;
   const rendered = renderReportWithMeta(body);
   const canFilterOpen = rendered.hasStillOpenRows && rendered.hasResolvedOrStaleRows;
   const filterInputs = canFilterOpen ? `
@@ -1089,6 +1117,7 @@ export function reportPage(
     ${actions ?? ""}
     ${renderConvergenceCard(rendered.continuity)}
     ${renderToc(rendered.toc)}
+    ${renderPrCommentBox(title, rendered.continuity, rendered.stillOpenTitles, shareUrl)}
     <div class="report-reader">
       ${filterInputs}
       <div class="reader-toolbar">

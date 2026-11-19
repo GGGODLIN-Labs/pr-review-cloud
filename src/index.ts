@@ -91,7 +91,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       : errorPage("服務暫時無法使用", "資料庫連線暫時異常，請稍後再試。", 503);
   }
 
-  if (share) return readShare(db, share[1]);
+  if (share) return readShare(db, share[1], share[2] === "raw", origin);
   if (fromCLI) {
     const owner = await apiKeyOwner(request, db);
     if (!owner) return new Response("API 金鑰無效或已撤銷。", { status: 401 });

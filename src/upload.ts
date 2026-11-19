@@ -6,6 +6,11 @@ const maxBytes = 131_072;
 const auditFile = "不接受 .audit.md 稽核副檔，請改傳不含完整原始證據的主報告 .md。";
 const tooLarge = "報告檔案超過 128 KB（131,072 bytes）上限，請精簡非必要內容後重新上傳。";
 
+function looksLikeAuditSidecar(markdown: string): boolean {
+  const head = markdown.replace(/^﻿/, "").split(/\r?\n/, 40).join("\n");
+  return /^(?:#\s+.*\baudit\s+sidecar\b|\*\*Audit\s+sidecar\*\*:|\*\*Report\s+artifact\s+role\*\*:\s*audit\b)/im.test(head);
+}
+
 function uploadError(fromCLI: boolean, title: string, message: string, status: number): Response {
   if (fromCLI) return status === 413 ? new Response(null, { status }) : new Response(message, { status });
   return errorPage(title, message, status, { signedIn: true, backHref: "/workspace", backLabel: "返回工作區" });
@@ -43,6 +48,7 @@ export async function uploadReport(request: Request, db: D1Database, userId: str
     return uploadError(fromCLI, "編碼格式不符", "報告必須使用 UTF-8 編碼。", 400);
   }
   if (!markdown.trim()) return uploadError(fromCLI, "報告內容空白", "報告內容不可空白。", 400);
+  if (looksLikeAuditSidecar(markdown)) return uploadError(fromCLI, "不支援稽核副檔", auditFile, 400);
 
   const tokens = lexer(markdown.replace(/^﻿/, ""));
   const headings = tokens.filter((token): token is Tokens.Heading => token.type === "heading" && Boolean(token.text.trim()));
@@ -86,7 +92,24 @@ export async function uploadReport(request: Request, db: D1Database, userId: str
     return uploadError(fromCLI, "已達報告數量上限", "報告已達配額，請刪除舊報告或升級方案。", 409);
   }
   const location = `/workspace/reports/${id}`;
-  return fromCLI
-    ? Response.json({ id }, { status: 201, headers: { Location: location } })
-    : new Response(null, { status: 303, headers: { Location: location } });
+  if (!fromCLI) {
+    return new Response(null, { status: 303, headers: { Location: location } });
+  }
+  const origin = new URL(request.url).origin;
+  const usage = await db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM reports WHERE user_id = users.id) AS count,
+      CASE users.plan WHEN 'pro' THEN 500 WHEN 'pro_pass' THEN 500 ELSE 20 END AS quota_limit
+    FROM users WHERE users.id = ?
+  `).bind(userId).first<{ count: number; quota_limit: number }>();
+  return Response.json(
+    {
+      id,
+      url: `${origin}${location}`,
+      raw_url: `${origin}${location}/raw`,
+      count: usage?.count ?? 1,
+      limit: usage?.quota_limit ?? 20,
+    },
+    { status: 201, headers: { Location: location } },
+  );
 }
