@@ -104,3 +104,23 @@ test("report Markdown escapes raw tags and keeps only HTTP(S) links and images",
   assert.match(html, /<img src="https:\/\/example\.test\/image\.png" alt="safe image"/);
   assert.match(html, /<pre><code class="language-js">[^<]*&lt;em&gt;literal&lt;\/em&gt;[^<]*<\/code><\/pre>/);
 });
+
+test("schema 2 reports render convergence meter, status badges, STILL_OPEN CSS filter, TOC anchors and table-scroll without JS", async () => {
+  const response = await request("/sample?round=2");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /class="convergence-card"/);
+  assert.match(html, /2 \/ 3 已修復（67%）/);
+  assert.match(html, /<td\b[^>]*data-status="FIXED"[^>]*>FIXED<\/td>/);
+  assert.match(html, /<td\b[^>]*data-status="STILL_OPEN"[^>]*>STILL_OPEN<\/td>/);
+  assert.match(html, /id="filter-open"/);
+  assert.match(html, /只看 STILL_OPEN（1）/);
+  assert.match(html, /<div class="table-scroll"><table>/);
+  assert.match(html, /<details class="report-toc">/);
+  assert.match(html, /<h2 id="sec-/);
+  assert.doesNotMatch(html, /<script\b/i);
+
+  const samePageLink = renderReport("[Jump](#sec-summary) and [Blocked](/relative)");
+  assert.match(samePageLink, /<a href="#sec-summary">Jump<\/a>/);
+  assert.doesNotMatch(samePageLink, /href="\/relative"/);
+});

@@ -1,4 +1,4 @@
-import { escapeHtml, renderReport } from "./markdown.ts";
+import { escapeHtml, renderReportWithMeta, type ContinuityCounts, type TocHeading } from "./markdown.ts";
 
 const faviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <rect width="32" height="32" rx="8" fill="#1c1a17"/>
@@ -379,6 +379,18 @@ const styles = `
     font-size: .925rem;
     margin-block: 1rem;
   }
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-block: 1rem;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+  }
+  .table-scroll table {
+    margin-block: 0;
+    min-inline-size: 32rem;
+  }
+  .table-scroll tr:last-child td { border-block-end: none; }
   article :is(th, td) {
     padding: .65rem .8rem;
     border-block-end: 1px solid var(--rule);
@@ -390,7 +402,171 @@ const styles = `
     font-weight: 600;
     font-size: .8125rem;
     color: var(--muted);
+    white-space: nowrap;
   }
+  article td[data-status] {
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  article td[data-status]::before {
+    content: "";
+    display: inline-block;
+    width: .45rem;
+    height: .45rem;
+    border-radius: 50%;
+    background: currentColor;
+    margin-inline-end: .45rem;
+    vertical-align: middle;
+  }
+  article td[data-status="FIXED"] { color: var(--pass); }
+  article td[data-status="STILL_OPEN"] { color: var(--open); }
+  article td[data-status="STALE"] { color: var(--stale); }
+  .report-reader { position: relative; }
+  .filter-radio {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    clip-path: inset(50%);
+    overflow: hidden;
+  }
+  .convergence-card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    padding: 1rem 1.25rem;
+    margin-block-end: 1rem;
+    box-shadow: var(--shadow-sm);
+  }
+  .convergence-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem 1rem;
+  }
+  .convergence-label {
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    color: var(--subtle);
+    letter-spacing: 0.02em;
+  }
+  .convergence-rate {
+    font-family: var(--font-mono);
+    font-size: .85rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .convergence-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-block: .65rem .75rem;
+  }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    padding: .22rem .65rem;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    font-weight: 500;
+  }
+  .status-pill::before {
+    content: "";
+    width: .45rem;
+    height: .45rem;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .status-pill.is-fixed { color: var(--pass); background: var(--pass-bg); }
+  .status-pill.is-open { color: var(--open); background: var(--open-bg); }
+  .status-pill.is-stale { color: var(--stale); background: var(--stale-bg); }
+  .convergence-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--well);
+    gap: 2px;
+  }
+  .convergence-seg.is-fixed { background: var(--pass); }
+  .convergence-seg.is-open { background: var(--open); }
+  .convergence-seg.is-stale { background: var(--stale); }
+  .reader-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem 1rem;
+    margin-block-end: .85rem;
+  }
+  .finding-filters {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    padding: .2rem;
+    border: 1px solid var(--rule);
+    border-radius: 9px;
+    background: var(--paper);
+    font-size: .8125rem;
+  }
+  .finding-filters label {
+    padding: .26rem .7rem;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .finding-filters label:hover { color: var(--ink); }
+  #filter-all:checked ~ .reader-toolbar label[for=filter-all],
+  #filter-open:checked ~ .reader-toolbar label[for=filter-open] {
+    border-color: var(--rule);
+    background: var(--raised);
+    color: var(--ink);
+  }
+  #filter-all:focus-visible ~ .reader-toolbar label[for=filter-all],
+  #filter-open:focus-visible ~ .reader-toolbar label[for=filter-open] {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  #filter-open:checked ~ article tr[data-row-status="FIXED"],
+  #filter-open:checked ~ article tr[data-row-status="STALE"] {
+    display: none;
+  }
+  .report-toc {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: .65rem 1rem;
+    margin-block-end: 1rem;
+    font-size: .875rem;
+  }
+  .report-toc summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--ink);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .report-toc summary::-webkit-details-marker { display: none; }
+  .report-toc summary::after { content: "展開"; font-family: var(--font-mono); font-size: .75rem; color: var(--subtle); }
+  .report-toc[open] summary::after { content: "收合"; }
+  .report-toc ol {
+    margin: .65rem 0 .2rem;
+    padding-inline-start: 1.25rem;
+    display: grid;
+    gap: .3rem;
+  }
+  .report-toc li.toc-h3 { margin-inline-start: 1rem; list-style-type: circle; }
+  .report-toc a { color: var(--muted); text-decoration: none; }
+  .report-toc a:hover { color: var(--accent); text-decoration: underline; }
   article pre {
     overflow: auto;
     padding: .9rem 1rem;
@@ -497,12 +673,64 @@ export function htmlResponse(title: string, content: string, status = 200, signe
   });
 }
 
+function renderConvergenceCard(continuity: ContinuityCounts | null): string {
+  if (!continuity) return "";
+  const pct = continuity.total > 0 ? Math.round((continuity.fixed / continuity.total) * 100) : 100;
+  const segments = [
+    continuity.fixed > 0 ? `<span class="convergence-seg is-fixed" style="flex:${continuity.fixed}"></span>` : "",
+    continuity.stillOpen > 0 ? `<span class="convergence-seg is-open" style="flex:${continuity.stillOpen}"></span>` : "",
+    continuity.stale > 0 ? `<span class="convergence-seg is-stale" style="flex:${continuity.stale}"></span>` : "",
+  ].join("");
+  return `<section class="convergence-card" aria-label="跨輪修復收斂摘要">
+    <div class="convergence-head">
+      <span class="convergence-label">跨輪對帳 · ${escapeHtml(continuity.status)}</span>
+      <span class="convergence-rate">${continuity.fixed} / ${continuity.total} 已修復（${pct}%）</span>
+    </div>
+    <div class="convergence-pills">
+      <span class="status-pill is-fixed">FIXED · ${continuity.fixed}</span>
+      <span class="status-pill is-open">STILL_OPEN · ${continuity.stillOpen}</span>
+      <span class="status-pill is-stale">STALE · ${continuity.stale}</span>
+    </div>
+    ${segments ? `<div class="convergence-bar" role="img" aria-label="已修復 ${continuity.fixed}，未修復 ${continuity.stillOpen}，已過時 ${continuity.stale}">${segments}</div>` : ""}
+  </section>`;
+}
+
+function renderToc(toc: TocHeading[]): string {
+  if (toc.length < 2) return "";
+  const items = toc.map((item) =>
+    `<li class="toc-h${item.depth}"><a href="#${escapeHtml(item.id)}">${escapeHtml(item.text)}</a></li>`).join("");
+  return `<details class="report-toc">
+    <summary>章節目錄（${toc.length} 節）</summary>
+    <ol>${items}</ol>
+  </details>`;
+}
+
 export function reportPage(title: string, body: string, options: { round?: 1 | 2; actions?: string; signedIn?: boolean } = {}): Response {
   const { round, actions, signedIn } = options;
+  const rendered = renderReportWithMeta(body);
+  const canFilterOpen = rendered.hasStillOpenRows && rendered.hasResolvedOrStaleRows;
+  const filterInputs = canFilterOpen ? `
+    <input class="filter-radio" type="radio" name="finding-filter" id="filter-all" checked>
+    <input class="filter-radio" type="radio" name="finding-filter" id="filter-open">
+  ` : "";
+  const filterControls = canFilterOpen ? `
+    <div class="finding-filters" role="group" aria-label="篩選發現狀態">
+      <label for="filter-all">全部項目（${rendered.totalStatusRowCount}）</label>
+      <label for="filter-open">只看 STILL_OPEN（${rendered.stillOpenRowCount}）</label>
+    </div>
+  ` : "";
   return htmlResponse(title, `
     ${round ? roundNavigation(round) : ""}
     ${actions ?? ""}
-    <p class="source-status">狀態以原報告內容為準</p>
-    <article>${renderReport(body)}</article>
+    ${renderConvergenceCard(rendered.continuity)}
+    ${renderToc(rendered.toc)}
+    <div class="report-reader">
+      ${filterInputs}
+      <div class="reader-toolbar">
+        <p class="source-status">狀態以原報告內容為準</p>
+        ${filterControls}
+      </div>
+      <article>${rendered.html}</article>
+    </div>
   `, 200, signedIn);
 }
