@@ -1138,6 +1138,12 @@ export function signInRequiredPage(): Response {
   });
 }
 
+function isSafeInternalPath(value: string): boolean {
+  if (!/^\/(?![/\\])[^\u0000-\u001f\u007f]*$/.test(value)) return false;
+  const resolved = URL.parse(value, "https://app.invalid");
+  return resolved !== null && resolved.origin === "https://app.invalid";
+}
+
 export function errorPage(
   title: string,
   message: string,
@@ -1145,7 +1151,8 @@ export function errorPage(
   options: { signedIn?: boolean; backHref?: string; backLabel?: string } = {},
 ): Response {
   const { signedIn = false, backHref, backLabel } = options;
-  const href = backHref ?? (signedIn ? "/workspace" : "/");
+  const fallbackHref = signedIn ? "/workspace" : "/";
+  const href = backHref !== undefined && isSafeInternalPath(backHref) ? backHref : fallbackHref;
   const label = backLabel ?? (signedIn ? "返回工作區" : "返回首頁");
   return htmlResponse(title, `
     <section class="signin-card" aria-label="${escapeHtml(title)}">
@@ -1245,6 +1252,7 @@ ${seoMeta}
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
       "Referrer-Policy": signedIn ? "same-origin" : "no-referrer",
       "Content-Security-Policy": "default-src 'none'; img-src https: http:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
     },

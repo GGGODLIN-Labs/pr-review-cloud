@@ -759,3 +759,75 @@ test("shared reports support /s/:token/raw download with immediate revocation, P
   });
   assert.equal(legitMentioningAudit.status, 201, "legitimate main report mentioning 'audit sidecar' in title must be accepted");
 });
+
+test("upload rejects unsupported media types", async (t) => {
+  const { fetch, account, db } = fixture(t);
+  const { key } = account("upload-media-type");
+  const upload = (type) => fetch("/api/reports", {
+    method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": type }, body: mainReport,
+  });
+  assert.equal((await upload("application/json")).status, 415);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM reports").get().count, 0);
+  for (const type of ["TeXt/Markdown; charset=UTF-8", "application/x-www-form-urlencoded"]) {
+    assert.equal((await upload(type)).status, 201, type);
+  }
+});
+
+test("upload rejects ambiguous multipart file selections", async (t) => {
+  const { fetch, account, db } = fixture(t);
+  const { cookie, key } = account("upload-multipart");
+  const upload = (form) => fetch("/workspace/reports", browser(cookie, form));
+  const duplicate = formFile("first.md", "# First selection");
+  duplicate.append("file", new Blob(["# Second selection"]), "second.md");
+  assert.equal((await upload(duplicate)).status, 400);
+  assert.equal((await fetch("/api/reports", {
+    method: "POST", headers: { Authorization: `Bearer ${key}` }, body: duplicate,
+  })).status, 400);
+  const mixed = formFile("one.md", mainReport);
+  mixed.append("file", "Not a file");
+  assert.equal((await upload(mixed)).status, 400);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM reports").get().count, 0);
+  assert.equal((await upload(formFile("review.md", mainReport))).status, 303);
+});
+
+test("explicit audit artifact role takes precedence over projection schema metadata", async (t) => {
+  const { fetch, account, db } = fixture(t);
+  const { key } = account("artifact-role");
+  for (const schema of ["2", "3"]) {
+    const audit = `# Audit notes\n\n**Report artifact role**: audit\n**Report projection schema**: ${schema}\n**PR**: #123`;
+    const rejected = await cli(fetch, key, audit);
+    assert.equal(rejected.status, 400, `schema ${schema}`);
+    assert.match(await rejected.text(), /主報告.*\.md/);
+  }
+  const longReport = `${mainReport}\n\n${"Review note.\n".repeat(8_001)}`;
+  const longAudit = await cli(fetch, key, `${longReport}\n**Report artifact role**: audit`);
+  assert.equal(longAudit.status, 400, "the explicit role also applies to plain-text fallback");
+  assert.equal((await cli(fetch, key, longReport)).status, 201, "an unmarked report can still be uploaded as plain text");
+  const main = `${mainReport}\n\n\`\`\`md\n**Report artifact role**: audit\n\`\`\``;
+  assert.equal((await cli(fetch, key, main)).status, 201);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM reports").get().count, 2);
+});
+
+test("paid accounts admit only one final upload and report usage from the write", async (t) => {
+  const { fetch, account, db, env } = fixture(t);
+  const prepare = env.DB.prepare;
+  env.DB.prepare = (sql) => {
+    if (/^\s*SELECT\b/i.test(sql) && /\breports\b/i.test(sql)) {
+      throw new Error("synthetic separate usage read failure");
+    }
+    return prepare(sql);
+  };
+  const seed = db.prepare("INSERT INTO reports (id, user_id, title, markdown_body, size_bytes) VALUES (?, ?, ?, ?, ?)");
+  const count = db.prepare("SELECT COUNT(*) AS count FROM reports WHERE user_id = ?");
+  for (const plan of ["pro", "pro_pass"]) {
+    const { key } = account(plan, { plan });
+    for (let i = 1; i < 500; i++) seed.run(`${plan}-${i}`, plan, `Report ${i}`, "# Prior report", 14);
+    const results = await Promise.all([cli(fetch, key, "# Final A"), cli(fetch, key, "# Final B")]);
+    assert.deepEqual(results.map(({ status }) => status).sort(), [201, 409], plan);
+    const receipt = await results.find(({ status }) => status === 201).json();
+    assert.equal(receipt.count, 500, plan);
+    assert.equal(receipt.limit, 500, plan);
+    assert.ok(db.prepare("SELECT id FROM reports WHERE id = ? AND user_id = ?").get(receipt.id, plan));
+    assert.equal(count.get(plan).count, 500, plan);
+  }
+});

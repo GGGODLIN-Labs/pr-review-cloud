@@ -39,6 +39,25 @@ function expectedMethodFor(path: string, report: RegExpMatchArray | null, revoke
   return null;
 }
 
+function isAllowedBrowserPost(request: Request, origin: string): boolean {
+  const sentOrigin = request.headers.get("Origin");
+  const site = request.headers.get("Sec-Fetch-Site");
+  const referer = request.headers.get("Referer");
+  if (sentOrigin === null && site === null && referer === null) return false;
+  if (site !== null && site.trim().toLowerCase() !== "same-origin") return false;
+  if (sentOrigin !== null && sentOrigin !== origin) return false;
+  if (referer !== null) {
+    const parsedReferer = URL.parse(referer);
+    if (!parsedReferer || parsedReferer.origin !== origin) return false;
+  }
+  return true;
+}
+
+function isMachinePath(rawUrl: string): boolean {
+  const pathname = URL.parse(rawUrl)?.pathname ?? "";
+  return pathname.startsWith("/api/") || pathname.startsWith("/webhooks/");
+}
+
 async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -52,9 +71,10 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   if (!expected) {
     return errorPage("找不到頁面", "你造訪的網址不存在，請確認連結是否正確。", 404);
   }
-  const isHead = request.method === "HEAD" && expected === "GET";
+  const allowHead = expected === "GET" && path !== "/auth/github/callback";
+  const isHead = request.method === "HEAD" && allowHead;
   if (request.method !== expected && !isHead) {
-    const allow = expected === "GET" ? "GET, HEAD" : expected;
+    const allow = allowHead ? "GET, HEAD" : expected;
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: allow } });
   }
   if (path === "/favicon.svg" || path === "/favicon.ico") {
@@ -94,22 +114,23 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   if (share) return readShare(db, share[1], share[2] === "raw", origin);
   if (fromCLI) {
     const owner = await apiKeyOwner(request, db);
-    if (!owner) return new Response("API 金鑰無效或已撤銷。", { status: 401 });
+    if (!owner) {
+      return new Response("API 金鑰無效或已撤銷。", { status: 401, headers: { "WWW-Authenticate": "Bearer" } });
+    }
     return uploadReport(request, db, owner.id, true);
   }
 
-  if (expected === "POST") {
-    const sentOrigin = request.headers.get("Origin");
-    const site = request.headers.get("Sec-Fetch-Site");
-    if ((sentOrigin !== null && sentOrigin !== origin) || site === "cross-site" || site === "same-site") {
-      return errorPage("請求來源不受允許", "此操作必須從工作區送出。", 403);
-    }
+  if (expected === "POST" && !isAllowedBrowserPost(request, origin)) {
+    return errorPage("請求來源不受允許", "此操作必須從工作區送出。", 403);
   }
   if (path === "/auth/logout") return logout(request, db);
   const user = await signedInUser(request, db);
   if (!user) return signInRequiredPage();
   if (path === "/workspace") return workspacePage(db, user, env.BILLING_MODE === "polar_live");
-  if (path === "/workspace/checkout") return startCheckout(env, user.id, url.searchParams.get("plan"));
+  if (path === "/workspace/checkout") {
+    const plans = url.searchParams.getAll("plan");
+    return startCheckout(env, user.id, plans.length === 1 ? plans[0] : null);
+  }
   if (path === "/workspace/keys") return issueKey(db, user.id, origin);
   if (revoke) return revokeKey(db, user.id, revoke[1]);
   if (path === "/workspace/reports") return uploadReport(request, db, user.id, false);
@@ -123,13 +144,19 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env = {}): Promise<Response> {
     const response = await handleRequest(request, env).catch(() =>
-      request.url.includes("/api/") || request.url.includes("/webhooks/")
+      isMachinePath(request.url)
         ? new Response("服務暫時無法使用。", { status: 503 })
         : errorPage("服務暫時無法使用", "目前暫時無法處理請求，請稍後再試。", 503));
     const finalResponse = request.method === "HEAD"
       ? new Response(null, { status: response.status, headers: response.headers })
       : response;
     finalResponse.headers.set("Cache-Control", "no-store");
+    if (!finalResponse.headers.has("X-Content-Type-Options")) {
+      finalResponse.headers.set("X-Content-Type-Options", "nosniff");
+    }
+    if (!finalResponse.headers.has("Referrer-Policy")) {
+      finalResponse.headers.set("Referrer-Policy", "no-referrer");
+    }
     return finalResponse;
   },
 };

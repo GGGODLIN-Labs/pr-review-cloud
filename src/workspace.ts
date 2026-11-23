@@ -3,9 +3,26 @@ import { readBoundedBody } from "./body.ts";
 import { escapeHtml } from "./markdown.ts";
 import { errorPage, htmlResponse, reportPage } from "./page.ts";
 
-export const reportRoute = /^\/workspace\/reports\/([A-Za-z0-9-]+)(?:\/(raw|share|unshare|delete))?$/;
-export const revokeRoute = /^\/workspace\/keys\/([A-Za-z0-9-]+)\/revoke$/;
-export const sharedRoute = /^\/s\/([A-Za-z0-9_-]{43})(?:\/(raw))?$/;
+export const reportRoute = /^\/workspace\/reports\/([A-Za-z0-9-]{1,128})(?:\/(raw|share|unshare|delete))?$/;
+export const revokeRoute = /^\/workspace\/keys\/([A-Za-z0-9-]{1,128})\/revoke$/;
+export const sharedRoute = /^\/s\/([A-Za-z0-9_-]{43,128})(?:\/(raw))?$/;
+
+const rawEncoder = new TextEncoder();
+const rawDecoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
+
+function storedMarkdownBytes(value: unknown): Uint8Array {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  if (Array.isArray(value)) return Uint8Array.from(value);
+  if (typeof value === "string") return rawEncoder.encode(value);
+  return new Uint8Array();
+}
+
+function storedMarkdownText(value: unknown): string {
+  if (typeof value === "string") return value;
+  return rawDecoder.decode(storedMarkdownBytes(value));
+}
 
 interface ReportSummary {
   id: string;
@@ -28,7 +45,7 @@ function safeAvatarUrl(value: string | null | undefined): string | null {
   if (!value) return null;
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "https:" ? parsed.href : null;
+    return parsed.protocol === "https:" && !parsed.username && !parsed.password ? parsed.href : null;
   } catch {
     return null;
   }
@@ -180,12 +197,14 @@ function downloadFilename(title: string, fallbackId: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
-  const safeFallback = fallbackId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 36) || "report";
-  return `${slug || safeFallback}.md`;
+  const cleanedFallback = fallbackId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 36);
+  const safeFallback = cleanedFallback.length > 0 ? cleanedFallback : "report";
+  return `${slug.length > 0 ? slug : safeFallback}.md`;
 }
 
-function rawMarkdownResponse(markdown: string, title: string, fallbackId: string): Response {
-  return new Response(markdown, {
+function rawMarkdownResponse(markdown: unknown, title: string, fallbackId: string): Response {
+  const bytes = storedMarkdownBytes(markdown);
+  return new Response(bytes, {
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
       "Content-Disposition": `attachment; filename="${downloadFilename(title, fallbackId)}"`,
@@ -195,8 +214,8 @@ function rawMarkdownResponse(markdown: string, title: string, fallbackId: string
 }
 
 export async function readReport(db: D1Database, userId: string, reportId: string, raw: boolean, origin: string): Promise<Response> {
-  const report = await db.prepare("SELECT title, pr_ref, markdown_body, share_token FROM reports WHERE id = ? AND user_id = ?")
-    .bind(reportId, userId).first<{ title: string; pr_ref: string | null; markdown_body: string; share_token: string | null }>();
+  const report = await db.prepare("SELECT title, pr_ref, CAST(markdown_body AS BLOB) AS markdown_body, share_token FROM reports WHERE id = ? AND user_id = ?")
+    .bind(reportId, userId).first<{ title: string; pr_ref: string | null; markdown_body: unknown; share_token: string | null }>();
   if (!report) {
     return raw
       ? new Response("找不到報告。", { status: 404 })
@@ -205,6 +224,7 @@ export async function readReport(db: D1Database, userId: string, reportId: strin
   if (raw) {
     return rawMarkdownResponse(report.markdown_body, report.title, reportId);
   }
+  const markdownText = storedMarkdownText(report.markdown_body);
   let timeline = "";
   if (report.pr_ref) {
     const siblings = await db.prepare(`
@@ -214,8 +234,8 @@ export async function readReport(db: D1Database, userId: string, reportId: strin
     `).bind(userId, report.pr_ref).all<{ id: string; created_at: string; continuity_summary: string | null }>();
     timeline = renderPrTimeline(report.pr_ref, siblings.results, reportId);
   }
-  const path = `/workspace/reports/${reportId}`;
-  const shareUrl = report.share_token ? `${origin}/s/${report.share_token}` : undefined;
+  const path = `/workspace/reports/${encodeURIComponent(reportId)}`;
+  const shareUrl = report.share_token ? `${origin}/s/${encodeURIComponent(report.share_token)}` : undefined;
   const share = report.share_token ? `
     <div class="report-actions-bar">
       <span class="badge is-shared">已開啟唯讀分享</span>
@@ -230,11 +250,11 @@ export async function readReport(db: D1Database, userId: string, reportId: strin
       <div style="margin-top:.6rem"><button class="btn-primary">啟用分享</button></div>
     </form>
   `;
-  return reportPage(report.title, report.markdown_body, {
+  return reportPage(report.title, markdownText, {
     signedIn: true,
     privatePage: true,
     shareUrl,
-    intro: timeline || undefined,
+    intro: timeline.length > 0 ? timeline : undefined,
     actions: `<section class="report-actions" aria-label="報告操作">
       <div class="report-actions-bar">
         <div class="intro-actions">
@@ -253,8 +273,8 @@ export async function readReport(db: D1Database, userId: string, reportId: strin
 }
 
 export async function readShare(db: D1Database, token: string, raw = false, origin = ""): Promise<Response> {
-  const report = await db.prepare("SELECT id, title, markdown_body FROM reports WHERE share_token = ?")
-    .bind(token).first<{ id: string; title: string; markdown_body: string }>();
+  const report = await db.prepare("SELECT id, title, CAST(markdown_body AS BLOB) AS markdown_body FROM reports WHERE share_token = ?")
+    .bind(token).first<{ id: string; title: string; markdown_body: unknown }>();
   if (!report) {
     return raw
       ? new Response("找不到報告。", { status: 404 })
@@ -263,9 +283,10 @@ export async function readShare(db: D1Database, token: string, raw = false, orig
   if (raw) {
     return rawMarkdownResponse(report.markdown_body, report.title, report.id);
   }
+  const markdownText = storedMarkdownText(report.markdown_body);
   const sharePath = `/s/${encodeURIComponent(token)}`;
   const shareUrl = origin ? `${origin}${sharePath}` : undefined;
-  return reportPage(report.title, report.markdown_body, {
+  return reportPage(report.title, markdownText, {
     privatePage: true,
     shareUrl,
     actions: `<div class="report-actions-bar" style="margin-block-end:1rem">
@@ -285,26 +306,28 @@ export async function changeReport(
 
   let result: D1Result;
   if (action === "share") {
-    const type = request.headers.get("Content-Type") ?? "";
+    const type = (request.headers.get("Content-Type") ?? "").trim();
     const body = /^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(type)
       ? await readBoundedBody(request, 1024).catch(() => null)
       : null;
     const form = body ? new URLSearchParams(new TextDecoder().decode(body)) : null;
     if (form?.get("confirm_code_anchors") !== "1") {
       return errorPage("需要確認分享範圍", "請先確認報告可能包含程式碼錨點片段。", 400, {
-        signedIn: true, backHref: `/workspace/reports/${reportId}`, backLabel: "返回報告",
+        signedIn: true, backHref: `/workspace/reports/${encodeURIComponent(reportId)}`, backLabel: "返回報告",
       });
     }
     result = await db.prepare(`
       UPDATE reports SET share_token = COALESCE(share_token, ?), shared_at = COALESCE(shared_at, CURRENT_TIMESTAMP)
       WHERE id = ? AND user_id = ?
     `).bind(randomToken(), reportId, userId).run();
-  } else {
+  } else if (action === "unshare") {
     result = await db.prepare("UPDATE reports SET share_token = NULL, shared_at = NULL WHERE id = ? AND user_id = ?")
       .bind(reportId, userId).run();
+  } else {
+    return errorPage("找不到頁面", "不支援的報告操作。", 404, { signedIn: true });
   }
   if (!result.meta.changes) {
     return errorPage("找不到報告", "找不到報告，無法更新分享狀態。", 404, { signedIn: true });
   }
-  return redirect(`/workspace/reports/${reportId}`);
+  return redirect(`/workspace/reports/${encodeURIComponent(reportId)}`);
 }
