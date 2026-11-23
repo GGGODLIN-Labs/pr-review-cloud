@@ -120,7 +120,7 @@ test("schema 2 reports render convergence meter, status badges, STILL_OPEN CSS f
   assert.match(html, /<details class="report-toc">/);
   assert.match(html, /<h2 id="sec-/);
   assert.match(html, /id="pr-comment-summary"/);
-  assert.equal((html.match(/--open: #ef9a7c;/g) ?? []).length, 2, "both dark-mode blocks must use accessible --open");
+  assert.equal((html.match(/--open: #ff7ab2;/g) ?? []).length, 2, "both dark-mode blocks must use accessible --open");
   assert.doesNotMatch(html, /--open: #e08161;/);
   assert.match(html, /\.report-toc summary::after\s*\{[^}]*white-space:\s*nowrap;/);
   assert.doesNotMatch(html, /<script\b/i);
